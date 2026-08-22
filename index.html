@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>1vs1 3D FPS</title>
+    <title>1vs1 3D FPS - リロード修正版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -77,7 +77,7 @@
     <div id="crosshair"></div>
     <div id="status-top">Target: <span id="target-name">???</span></div>
     <div id="status-bottom">HP: <span id="hp">100</span></div>
-    <div id="ammo-display"><span id="ammo">30</span> / 30</div>
+    <div id="ammo-display">30 / 30</div>
     <div id="enemy-name-label">Enemy</div>
 
     <div id="mobile-joystick-area"></div>
@@ -194,13 +194,13 @@ function startGame(mobileMode) {
     camera.rotation.set(0, player.yaw, 0);
 
     isPlaying = true;
+    updateAmmoDisplay();
 
     if (!isMobile) {
         document.body.requestPointerLock();
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
                 player.yaw -= e.movementX * 0.002;
-                // [修正] e.movementYの符号をマイナスにして、一般的なFPSの挙動（マウス上で上を向く）に変更
                 player.pitch -= e.movementY * 0.002;
                 player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
                 camera.rotation.set(player.pitch, player.yaw, 0);
@@ -213,7 +213,7 @@ function startGame(mobileMode) {
             if(e.code==='KeyD') keys.d = true;
             if(e.code==='Space') jump();
             if(e.code==='ShiftLeft') crouch(true);
-            if(e.code==='KeyR' || e.key === 'r') reload(); 
+            if(e.code==='KeyR' || e.key === 'r' || e.key === 'R') reload(); 
         });
         document.addEventListener('keyup', (e) => {
             if(e.code==='KeyW') keys.w = false;
@@ -232,18 +232,17 @@ function startGame(mobileMode) {
         document.getElementById('mobile-joystick-area').style.display = 'block';
         document.getElementById('mobile-look-area').style.display = 'block';
         
-        document.getElementById('btn-shoot').ontouchstart = () => shoot();
-        document.getElementById('btn-jump').ontouchstart = () => jump();
-        document.getElementById('btn-crouch').ontouchstart = () => crouch(!player.isCrouching);
-        document.getElementById('btn-scope').ontouchstart = () => toggleScope();
-        document.getElementById('btn-reload').ontouchstart = () => reload();
+        document.getElementById('btn-shoot').ontouchstart = (e) => { e.preventDefault(); shoot(); };
+        document.getElementById('btn-jump').ontouchstart = (e) => { e.preventDefault(); jump(); };
+        document.getElementById('btn-crouch').ontouchstart = (e) => { e.preventDefault(); crouch(!player.isCrouching); };
+        document.getElementById('btn-scope').ontouchstart = (e) => { e.preventDefault(); toggleScope(); };
+        document.getElementById('btn-reload').ontouchstart = (e) => { e.preventDefault(); reload(); };
 
         let lastTouchX = 0, lastTouchY = 0;
         document.getElementById('mobile-look-area').addEventListener('touchmove', (e) => {
             const touch = e.touches[0];
             if(lastTouchX) {
                 player.yaw -= (touch.clientX - lastTouchX) * 0.005;
-                // スマホ操作も同様に合わせる
                 player.pitch -= (touch.clientY - lastTouchY) * 0.005;
                 player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
                 camera.rotation.set(player.pitch, player.yaw, 0);
@@ -343,21 +342,23 @@ function toggleScope() {
 function reload() {
     if (isReloading || currentAmmo === MAX_AMMO) return;
     isReloading = true;
-    const ammoEl = document.getElementById('ammo-display');
-    ammoEl.classList.add('reloading');
-    ammoEl.innerHTML = `Reloading...`;
+    updateAmmoDisplay();
     
     setTimeout(() => {
         currentAmmo = MAX_AMMO;
         isReloading = false;
-        ammoEl.classList.remove('reloading');
         updateAmmoDisplay();
     }, 1500); 
 }
 
 function updateAmmoDisplay() {
-    if(!isReloading) {
-        document.getElementById('ammo').innerText = currentAmmo;
+    const ammoEl = document.getElementById('ammo-display');
+    if (isReloading) {
+        ammoEl.innerText = "Reloading...";
+        ammoEl.classList.add('reloading');
+    } else {
+        ammoEl.innerText = `${currentAmmo} / ${MAX_AMMO}`;
+        ammoEl.classList.remove('reloading');
     }
 }
 
@@ -383,7 +384,6 @@ function shoot() {
         crosshair.classList.remove('shooting');
     }, 50);
 
-    // 反動の方向もマウス操作に合わせて修正
     player.pitch += 0.02;
     camera.rotation.set(player.pitch, player.yaw, 0);
     
