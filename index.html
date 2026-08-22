@@ -100,6 +100,9 @@
 </div>
 
 <script>
+// ★ 上下視点操作の反転設定 (false: 上スワイプで上を向く / true: 上スワイプで下を向く)
+const INVERT_Y = false;
+
 let isMobile = false;
 let isPlaying = false;
 let myHP = 100;
@@ -231,7 +234,7 @@ function startGame(mobileMode) {
         camera.position.set(0, player.height, -10);
         player.yaw = 0;
     }
-    camera.rotation.set(0, player.yaw, 0);
+    camera.rotation.set(player.pitch, player.yaw, 0);
 
     isPlaying = true;
     updateAmmoDisplay();
@@ -241,9 +244,11 @@ function startGame(mobileMode) {
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
                 player.yaw -= e.movementX * 0.002;
-                // PC版のマウス縦移動の反転も修正
-                player.pitch += e.movementY * 0.002;
+                
+                const pitchDelta = e.movementY * 0.002;
+                player.pitch += INVERT_Y ? pitchDelta : -pitchDelta;
                 player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+                
                 camera.rotation.set(player.pitch, player.yaw, 0);
             }
         });
@@ -277,7 +282,7 @@ function startGame(mobileMode) {
     }
 }
 
-// モバイルタッチ操作処理 (反転制御修正済み)
+// モバイルタッチ操作処理
 function setupPointerControls() {
     const bindBtn = (id, action) => {
         const el = document.getElementById(id);
@@ -315,11 +320,14 @@ function setupPointerControls() {
             const dy = e.clientY - lastLookY;
             
             player.yaw -= dx * 0.004;
-            // 修正: dyの加減算を逆にして、指を上に動かしたら上を向くように修正
-            player.pitch += dy * 0.004; 
+            
+            // ★ 修正: 上スワイプ(dy < 0)で pitch を減らし、上を向く処理に確実化
+            const pitchDelta = dy * 0.004;
+            player.pitch += INVERT_Y ? -pitchDelta : pitchDelta;
             player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
             
             camera.rotation.set(player.pitch, player.yaw, 0);
+            
             lastLookX = e.clientX;
             lastLookY = e.clientY;
         }
@@ -369,7 +377,6 @@ function setupPointerControls() {
         }
         joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
         
-        // 修正: moveInput.x の符号を反転して左に倒すと左へ移動するように修正
         moveInput.x = -dx / maxDist; 
         moveInput.z = -dy / maxDist;
     }
@@ -392,6 +399,10 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); 
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+// ★重要★ FPSの視点操作に必須のオイラー角回転順序を「YXZ」に指定（これでYaw回転時のPitch反転を防止）
+camera.rotation.order = 'YXZ';
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -518,7 +529,8 @@ function shoot() {
         crosshair.classList.remove('shooting');
     }, 50);
 
-    player.pitch += 0.015;
+    // ★ 修正: 射撃反動で銃口が上に向くように修正
+    player.pitch -= 0.015;
     camera.rotation.set(player.pitch, player.yaw, 0);
     
     enemyGroup.updateMatrixWorld(true);
