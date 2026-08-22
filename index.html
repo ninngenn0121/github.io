@@ -2,72 +2,77 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>1vs1 3D FPS - 通信＆当たり判定強化版</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>1vs1 3D FPS - モバイル操作完全対応版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; user-select: none; }
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
+        * { touch-action: none; box-sizing: border-box; }
+        body { margin: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; user-select: none; -webkit-user-select: none; }
         
-        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; z-index: 100; overflow-y: auto; padding: 20px; box-sizing: border-box;}
-        .menu-box { background: #222; padding: 30px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 100%; }
-        .menu-section { margin-bottom: 20px; padding: 15px; background: #333; border-radius: 8px; }
-        input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; box-sizing: border-box; }
-        button { padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; transition: 0.2s; }
-        button:hover { background: #2980b9; }
+        /* UIレイヤーを3D描画より確実に前面(z-index: 10)に配置 */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; z-index: 10; }
+        
+        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; z-index: 100; overflow-y: auto; padding: 20px; }
+        .menu-box { background: #222; padding: 25px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 100%; }
+        .menu-section { margin-bottom: 15px; padding: 12px; background: #333; border-radius: 8px; }
+        input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; touch-action: auto; }
+        button { padding: 12px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; }
         .status-text { font-weight: bold; margin-top: 10px; font-size: 14px; }
         .text-success { color: #2ecc71; }
         .text-error { color: #e74c3c; }
         .text-wait { color: #f1c40f; }
 
-        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.05s, background 0.1s; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; background: red; border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.05s, background 0.1s; pointer-events: none; }
         .shooting { transform: translate(-50%, -50%) scale(2) !important; background: yellow !important;} 
         .hit-marker { transform: translate(-50%, -50%) scale(2.5) !important; background: #2ecc71 !important; }
 
-        #status-top { position: absolute; top: 20px; left: 20px; font-size: 20px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
-        #status-bottom { position: absolute; bottom: 20px; left: 20px; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
-        #ammo-display { position: absolute; bottom: 20px; right: 20px; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #status-top { position: absolute; top: 15px; left: 15px; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
+        #status-bottom { position: absolute; bottom: 15px; left: 15px; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #ammo-display { position: absolute; bottom: 15px; right: 15px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
         .reloading { color: #f1c40f; }
 
         #damage-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: red; opacity: 0; transition: opacity 0.1s; pointer-events: none;}
         #flash-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: white; opacity: 0; transition: opacity 0.05s; pointer-events: none;}
+        #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 3px; font-size: 12px; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; }
 
-        #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 3px; font-size: 14px; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; }
+        /* モバイル操作UI */
+        #mobile-look-area { position: absolute; top: 0; right: 0; width: 60%; height: 100%; pointer-events: auto; display: none; }
+        
+        #joystick-container { position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; display: none; pointer-events: auto; }
+        #joystick-stick { position: absolute; top: 35px; left: 35px; width: 50px; height: 50px; background: rgba(255,255,255,0.6); border-radius: 50%; pointer-events: none; }
 
-        .mobile-btn { position: absolute; background: rgba(255,255,255,0.2); border: 2px solid white; border-radius: 50%; width: 60px; height: 60px; display: none; align-items: center; justify-content: center; font-weight: bold; pointer-events: auto; }
-        .mobile-btn:active { background: rgba(255,255,255,0.5); }
-        #btn-shoot { bottom: 30px; right: 30px; width: 80px; height: 80px; background: rgba(231, 76, 60, 0.5); }
-        #btn-jump { bottom: 130px; right: 30px; }
-        #btn-crouch { bottom: 30px; right: 130px; }
-        #btn-scope { bottom: 130px; right: 130px; }
-        #btn-reload { bottom: 210px; right: 30px; width: 50px; height: 50px; font-size: 12px; }
-        #mobile-joystick-area { position: absolute; top: 0; left: 0; width: 50%; height: 100%; pointer-events: auto; display: none; }
-        #mobile-look-area { position: absolute; top: 0; left: 50%; width: 50%; height: 100%; pointer-events: auto; display: none; }
+        .mobile-btn { position: absolute; background: rgba(255,255,255,0.25); border: 2px solid rgba(255,255,255,0.8); border-radius: 50%; width: 60px; height: 60px; display: none; align-items: center; justify-content: center; font-weight: bold; pointer-events: auto; font-size: 16px; color: white; }
+        .mobile-btn:active { background: rgba(255,255,255,0.6); }
+        #btn-shoot { bottom: 30px; right: 30px; width: 85px; height: 85px; background: rgba(231, 76, 60, 0.6); border-color: #e74c3c; font-size: 20px; }
+        #btn-jump { bottom: 135px; right: 30px; }
+        #btn-crouch { bottom: 30px; right: 135px; }
+        #btn-scope { bottom: 135px; right: 135px; }
+        #btn-reload { bottom: 220px; right: 30px; width: 50px; height: 50px; font-size: 14px; }
     </style>
 </head>
 <body>
 
 <div id="menu">
     <div class="menu-box">
-        <h2>3D FPS 対戦ロビー</h2>
+        <h2 style="margin-top:0;">3D FPS 対戦ロビー</h2>
         <div class="menu-section">
-            <p>プレイヤー名</p>
+            <p style="margin:5px 0;">プレイヤー名</p>
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
         </div>
         <div class="menu-section">
-            <p>あなたのID</p>
-            <h3 id="my-id" style="color: #f1c40f;">生成中...</h3>
+            <p style="margin:5px 0;">あなたのID</p>
+            <h3 id="my-id" style="color: #f1c40f; margin:5px 0;">生成中...</h3>
             <button onclick="copyMyId()">IDをコピー</button>
         </div>
         <div class="menu-section">
-            <p>対戦相手のIDを入力</p>
+            <p style="margin:5px 0;">対戦相手のIDを入力</p>
             <input type="text" id="peer-id-input" placeholder="例: user-xxxxxx">
             <button id="btn-connect" onclick="connectToPeer()">接続する</button>
             <div id="connection-status" class="status-text text-wait">接続待機中...</div>
         </div>
         <div class="menu-section" id="start-section" style="opacity: 0.5; pointer-events: none;">
-            <p>接続完了！デバイスを選んでスタート</p>
+            <p style="margin:5px 0;">接続完了！操作方法を選択</p>
             <button id="btn-pc" onclick="startGame(false)">PC (キーボード&マウス)</button>
             <button id="btn-mobile" onclick="startGame(true)">スマホ (タッチ操作)</button>
         </div>
@@ -83,8 +88,10 @@
     <div id="ammo-display">30 / 30</div>
     <div id="enemy-name-label">Enemy</div>
 
-    <div id="mobile-joystick-area"></div>
+    <!-- モバイルコントロール用領域 -->
     <div id="mobile-look-area"></div>
+    <div id="joystick-container"><div id="joystick-stick"></div></div>
+    
     <div class="mobile-btn" id="btn-shoot">撃つ</div>
     <div class="mobile-btn" id="btn-jump">跳</div>
     <div class="mobile-btn" id="btn-crouch">屈</div>
@@ -108,23 +115,12 @@ let peer = null, conn = null;
 let fixedPeerId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
 localStorage.setItem('game_3d_id', fixedPeerId);
 
-// PeerJS 初期化
 peer = new Peer(fixedPeerId);
 
-peer.on('open', id => {
-    document.getElementById('my-id').innerText = id;
-});
-
-peer.on('error', err => {
-    console.error("PeerJS Error:", err);
-    updateStatus("通信エラーが発生しました: " + err.type, "error");
-});
-
+peer.on('open', id => { document.getElementById('my-id').innerText = id; });
+peer.on('error', err => { updateStatus("通信エラー: " + err.type, "error"); });
 peer.on('connection', connection => {
-    if(conn && conn.open) {
-        connection.close();
-        return;
-    }
+    if(conn && conn.open) { connection.close(); return; }
     conn = connection;
     isHost = true;
     setupConnection();
@@ -149,26 +145,20 @@ function updateStatus(text, type) {
     statusEl.className = "status-text text-" + type;
 }
 
-// 通信ハンドシェイクとリスナーの設定
 function setupConnection() {
     conn.on('open', () => {
         updateStatus("通信確立！ハンドシェイク中...", "wait");
         myName = document.getElementById('player-name-input').value.trim() || "Player";
-        
-        // 相手に自分の情報を安全に送る
         sendData({ type: 'init', name: myName, id: fixedPeerId });
     });
 
     conn.on('data', data => {
         if (!data || !data.type) return;
 
-        // 初期接続ハンドシェイク（受信）
         if (data.type === 'init') {
             enemyName = data.name;
             document.getElementById('target-name').innerText = enemyName;
             document.getElementById('enemy-name-label').innerText = enemyName;
-            
-            // 返信ACKを返す
             sendData({ type: 'init_ack', name: myName });
             enableStartGame();
         }
@@ -178,7 +168,6 @@ function setupConnection() {
             document.getElementById('enemy-name-label').innerText = enemyName;
             enableStartGame();
         }
-        // プレイヤー状態同期
         else if (data.type === 'state' && isPlaying) {
             enemyGroup.position.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
@@ -189,10 +178,8 @@ function setupConnection() {
                 enemyBody.scale.y = 1;
                 enemyHead.position.y = 1.9;
             }
-            // 座標更新後、衝突判定用Matrixを更新
             enemyGroup.updateMatrixWorld(true);
         } 
-        // 被弾判定（受信）
         else if (data.type === 'hit' && isPlaying) {
             myHP -= data.damage;
             document.getElementById('hp').innerText = Math.max(0, myHP);
@@ -208,16 +195,8 @@ function setupConnection() {
         }
     });
 
-    conn.on('close', () => {
-        alert("対戦相手との接続が切断されました。");
-        location.reload();
-    });
-
-    conn.on('error', err => {
-        console.error("Connection Error:", err);
-        updateStatus("接続エラーが発生しました", "error");
-        document.getElementById('btn-connect').disabled = false;
-    });
+    conn.on('close', () => { alert("対戦相手との接続が切断されました。"); location.reload(); });
+    conn.on('error', () => { updateStatus("接続エラーが発生しました", "error"); document.getElementById('btn-connect').disabled = false; });
 }
 
 function enableStartGame() {
@@ -227,20 +206,20 @@ function enableStartGame() {
     startSec.style.pointerEvents = "auto";
 }
 
-// データの強固な送信ラッパー関数
 function sendData(data) {
     if (conn && conn.open) {
-        try {
-            conn.send(data);
-        } catch(e) {
-            console.error("送信に失敗しました:", e);
-        }
+        try { conn.send(data); } catch(e) {}
     }
 }
 
 function copyMyId() {
     navigator.clipboard.writeText(fixedPeerId).then(() => alert("IDをコピーしました！"));
 }
+
+// モバイル操作変数
+let moveInput = { x: 0, z: 0 };
+let lookTouchId = null;
+let lastLookX = 0, lastLookY = 0;
 
 function startGame(mobileMode) {
     myName = document.getElementById('player-name-input').value.trim() || "Player";
@@ -292,42 +271,127 @@ function startGame(mobileMode) {
         });
         document.addEventListener('contextmenu', e => e.preventDefault());
     } else {
+        // スマホ用UIの表示
         document.querySelectorAll('.mobile-btn').forEach(b => b.style.display = 'flex');
-        document.getElementById('mobile-joystick-area').style.display = 'block';
+        document.getElementById('joystick-container').style.display = 'block';
         document.getElementById('mobile-look-area').style.display = 'block';
-        
-        document.getElementById('btn-shoot').ontouchstart = (e) => { e.preventDefault(); shoot(); };
-        document.getElementById('btn-jump').ontouchstart = (e) => { e.preventDefault(); jump(); };
-        document.getElementById('btn-crouch').ontouchstart = (e) => { e.preventDefault(); crouch(!player.isCrouching); };
-        document.getElementById('btn-scope').ontouchstart = (e) => { e.preventDefault(); toggleScope(); };
-        document.getElementById('btn-reload').ontouchstart = (e) => { e.preventDefault(); reload(); };
 
-        let lastTouchX = 0, lastTouchY = 0;
-        document.getElementById('mobile-look-area').addEventListener('touchmove', (e) => {
-            const touch = e.touches[0];
-            if(lastTouchX) {
-                player.yaw -= (touch.clientX - lastTouchX) * 0.005;
-                player.pitch -= (touch.clientY - lastTouchY) * 0.005;
-                player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
-                camera.rotation.set(player.pitch, player.yaw, 0);
-            }
-            lastTouchX = touch.clientX;
-            lastTouchY = touch.clientY;
-        });
-        document.getElementById('mobile-look-area').addEventListener('touchend', () => { lastTouchX=0; lastTouchY=0; });
-
-        document.getElementById('mobile-joystick-area').addEventListener('touchstart', () => keys.w = true);
-        document.getElementById('mobile-joystick-area').addEventListener('touchend', () => keys.w = false);
+        setupMobileControls();
     }
 }
 
-// --- Three.js 描画設定 ---
+// スマホ用マルチタッチ＆ジョイスティック処理
+function setupMobileControls() {
+    const bindBtn = (id, action) => {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            action();
+        }, { passive: false });
+    };
+
+    bindBtn('btn-shoot', shoot);
+    bindBtn('btn-jump', jump);
+    bindBtn('btn-crouch', () => crouch(!player.isCrouching));
+    bindBtn('btn-scope', toggleScope);
+    bindBtn('btn-reload', reload);
+
+    // 視点移動エリア
+    const lookArea = document.getElementById('mobile-look-area');
+    lookArea.addEventListener('touchstart', (e) => {
+        for (let t of e.changedTouches) {
+            if (lookTouchId === null) {
+                lookTouchId = t.identifier;
+                lastLookX = t.clientX;
+                lastLookY = t.clientY;
+            }
+        }
+    }, { passive: false });
+
+    lookArea.addEventListener('touchmove', (e) => {
+        for (let t of e.changedTouches) {
+            if (t.identifier === lookTouchId) {
+                const dx = t.clientX - lastLookX;
+                const dy = t.clientY - lastLookY;
+                player.yaw -= dx * 0.004;
+                player.pitch -= dy * 0.004;
+                player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+                camera.rotation.set(player.pitch, player.yaw, 0);
+                lastLookX = t.clientX;
+                lastLookY = t.clientY;
+            }
+        }
+    }, { passive: false });
+
+    const endLook = (e) => {
+        for (let t of e.changedTouches) {
+            if (t.identifier === lookTouchId) lookTouchId = null;
+        }
+    };
+    lookArea.addEventListener('touchend', endLook);
+    lookArea.addEventListener('touchcancel', endLook);
+
+    // ジョイスティック移動
+    const joyContainer = document.getElementById('joystick-container');
+    const joyStick = document.getElementById('joystick-stick');
+    let joyTouchId = null;
+    let joyStartX = 0, joyStartY = 0;
+
+    joyContainer.addEventListener('touchstart', (e) => {
+        for (let t of e.changedTouches) {
+            if (joyTouchId === null) {
+                joyTouchId = t.identifier;
+                const rect = joyContainer.getBoundingClientRect();
+                joyStartX = rect.left + rect.width / 2;
+                joyStartY = rect.top + rect.height / 2;
+                updateJoy(t);
+            }
+        }
+    }, { passive: false });
+
+    joyContainer.addEventListener('touchmove', (e) => {
+        for (let t of e.changedTouches) {
+            if (t.identifier === joyTouchId) updateJoy(t);
+        }
+    }, { passive: false });
+
+    function updateJoy(touch) {
+        let dx = touch.clientX - joyStartX;
+        let dy = touch.clientY - joyStartY;
+        let dist = Math.hypot(dx, dy);
+        let maxDist = 40;
+        if (dist > maxDist) {
+            dx = (dx / dist) * maxDist;
+            dy = (dy / dist) * maxDist;
+        }
+        joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
+        moveInput.x = dx / maxDist;  // 左右
+        moveInput.z = -dy / maxDist; // 前後
+    }
+
+    const endJoy = (e) => {
+        for (let t of e.changedTouches) {
+            if (t.identifier === joyTouchId) {
+                joyTouchId = null;
+                joyStick.style.transform = 'translate(0px, 0px)';
+                moveInput.x = 0;
+                moveInput.z = 0;
+            }
+        }
+    };
+    joyContainer.addEventListener('touchend', endJoy);
+    joyContainer.addEventListener('touchcancel', endJoy);
+}
+
+// Three.js 描画設定
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); 
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
 const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -352,7 +416,7 @@ const obstacle = new THREE.Mesh(boxGeom, boxMat);
 obstacle.position.set(0, 2, 0);
 scene.add(obstacle);
 
-// 敵プレイヤーモデル構築
+// 敵プレイヤーモデル
 const enemyGroup = new THREE.Group();
 scene.add(enemyGroup);
 
@@ -368,11 +432,10 @@ const enemyHead = new THREE.Mesh(headGeom, headMat);
 enemyHead.position.y = 1.9;
 enemyGroup.add(enemyHead);
 
-enemyGroup.position.set(0, -100, 0); // 初期位置は画面外
+enemyGroup.position.set(0, -100, 0);
 
 const player = {
     velocity: new THREE.Vector3(),
-    direction: new THREE.Vector3(),
     speed: 15,
     jumpForce: 12,
     gravity: 30,
@@ -409,7 +472,6 @@ function reload() {
     if (isReloading || currentAmmo === MAX_AMMO) return;
     isReloading = true;
     updateAmmoDisplay();
-    
     setTimeout(() => {
         currentAmmo = MAX_AMMO;
         isReloading = false;
@@ -432,11 +494,7 @@ const raycaster = new THREE.Raycaster();
 
 function shoot() {
     if(!isPlaying || isReloading) return;
-    
-    if (currentAmmo <= 0) {
-        reload();
-        return;
-    }
+    if (currentAmmo <= 0) return reload();
 
     currentAmmo--;
     updateAmmoDisplay();
@@ -451,11 +509,9 @@ function shoot() {
         crosshair.classList.remove('shooting');
     }, 50);
 
-    // リコイル（反動）
     player.pitch += 0.015;
     camera.rotation.set(player.pitch, player.yaw, 0);
     
-    // 【当たり判定修正部】レイキャストを実行する前に敵モデルの行列を強制同期
     enemyGroup.updateMatrixWorld(true);
 
     raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
@@ -465,11 +521,9 @@ function shoot() {
         const hitObject = intersects[0].object;
         let damage = (hitObject === enemyHead) ? 50 : 15;
         
-        // 自分の画面に「ヒットマーカー（緑）」を表示
         crosshair.classList.add('hit-marker');
         setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
 
-        // 相手にダメージパケットを送信
         sendData({ type: 'hit', damage: damage });
     }
 }
@@ -507,16 +561,23 @@ function animate() {
     if (isPlaying) {
         player.velocity.y -= player.gravity * delta;
 
-        player.direction.z = Number(keys.w) - Number(keys.s);
-        player.direction.x = Number(keys.a) - Number(keys.d);
-        player.direction.normalize();
+        let dirX = 0, dirZ = 0;
+        if (isMobile) {
+            dirX = moveInput.x;
+            dirZ = moveInput.z;
+        } else {
+            dirZ = Number(keys.w) - Number(keys.s);
+            dirX = Number(keys.a) - Number(keys.d);
+            let len = Math.hypot(dirX, dirZ);
+            if (len > 1) { dirX /= len; dirZ /= len; }
+        }
 
         const moveSpeed = player.isCrouching ? player.speed * 0.4 : player.speed;
 
-        if (player.direction.z !== 0 || player.direction.x !== 0) {
+        if (dirX !== 0 || dirZ !== 0) {
             const angle = player.yaw;
-            camera.position.x -= (Math.sin(angle) * player.direction.z + Math.cos(angle) * player.direction.x) * moveSpeed * delta;
-            camera.position.z -= (Math.cos(angle) * player.direction.z - Math.sin(angle) * player.direction.x) * moveSpeed * delta;
+            camera.position.x -= (Math.sin(angle) * dirZ + Math.cos(angle) * dirX) * moveSpeed * delta;
+            camera.position.z -= (Math.cos(angle) * dirZ - Math.sin(angle) * dirX) * moveSpeed * delta;
         }
 
         camera.position.y += player.velocity.y * delta;
@@ -528,7 +589,6 @@ function animate() {
             player.isGrounded = true;
         }
 
-        // 自分の位置情報を通信相手にリアルタイム送信
         const modelY = camera.position.y - currentGround; 
         sendData({
             type: 'state',
