@@ -23,6 +23,8 @@
             display: flex;
             gap: 10px;
             align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
         }
         canvas {
             background-color: #2b2b2b;
@@ -32,7 +34,7 @@
         }
         #ui {
             position: absolute;
-            top: 70px;
+            top: 80px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
@@ -51,13 +53,15 @@
             cursor: pointer;
         }
         .reload-btn:hover { background-color: #c0392b; }
-        input { padding: 5px; }
-        button { padding: 5px 10px; cursor: pointer; }
+        input { padding: 5px; border-radius: 4px; border: 1px solid #ccc; }
+        button { padding: 5px 10px; cursor: pointer; border-radius: 4px; border: none; background: #3498db; color: white; font-weight: bold; }
+        button:hover { background: #2980b9; }
     </style>
 </head>
 <body>
 
     <div id="controls">
+        <label>名前: <input type="text" id="name-input" value="Player1" maxlength="10" style="width: 80px;"></label>
         <span>あなたのID: <strong id="my-id">接続中...</strong></span>
         <input type="text" id="peer-id-input" placeholder="対戦相手のIDを入力">
         <button id="connect-btn">対戦相手に接続</button>
@@ -78,17 +82,18 @@ const ctx = canvas.getContext('2d');
 // --- プレイヤー＆ゲームデータ ---
 let peer = null;
 let conn = null;
-let isHost = false;
 
 const myPlayer = {
     x: 100, y: 300, size: 20, color: '#3498db',
     hp: 100, speed: 4, angle: 0,
-    ammo: 30, maxAmmo: 30, isReloading: false
+    ammo: 30, maxAmmo: 30, isReloading: false,
+    name: "Player1"
 };
 
 const enemyPlayer = {
     x: 700, y: 300, size: 20, color: '#e74c3c',
-    hp: 100, angle: 0
+    hp: 100, angle: 0,
+    name: "Enemy", isConnected: false
 };
 
 let bullets = [];
@@ -96,9 +101,14 @@ const keys = {};
 let mousePos = { x: 0, y: 0 };
 let isMouseDown = false;
 let lastShootTime = 0;
-const shootInterval = 100; // アサルトライフルの連射速度 (ms)
+const shootInterval = 100; // 連射速度 (ms)
 
-// --- PeerJS (オンライン通信処理) ---
+// 名前変更の監視
+document.getElementById('name-input').addEventListener('input', (e) => {
+    myPlayer.name = e.target.value || "No Name";
+});
+
+// --- PeerJS (通信＆1vs1制限) ---
 function initPeer() {
     peer = new Peer();
 
@@ -106,11 +116,20 @@ function initPeer() {
         document.getElementById('my-id').innerText = id;
     });
 
-    // 接続を受けた側 (2P)
+    // 他人からの接続要求
     peer.on('connection', (connection) => {
+        // すでに誰かと対戦中（connが存在して通信可能）なら3人目を自動拒否
+        if (conn && conn.open) {
+            connection.on('open', () => {
+                connection.send({ type: 'reject', reason: 'ルームが満員です（1vs1専用）' });
+                setTimeout(() => connection.close(), 500);
+            });
+            return;
+        }
+
         conn = connection;
         setupConnection();
-        // 初期位置の設定
+        // 接続を受けた側 (2P) の初期配置
         myPlayer.x = 700;
         myPlayer.color = '#e74c3c';
         enemyPlayer.x = 100;
@@ -118,8 +137,12 @@ function initPeer() {
     });
 }
 
-// 接続を仕掛ける側 (1P)
+// 自分から接続を仕掛ける (1P)
 document.getElementById('connect-btn').addEventListener('click', () => {
+    if (conn && conn.open) {
+        alert("すでに誰かと接続中です。");
+        return;
+    }
     const peerId = document.getElementById('peer-id-input').value;
     if (peerId) {
         conn = peer.connect(peerId);
@@ -129,23 +152,34 @@ document.getElementById('connect-btn').addEventListener('click', () => {
 
 function setupConnection() {
     conn.on('open', () => {
+        enemyPlayer.isConnected = true;
         console.log("対戦相手と接続されました！");
     });
 
     conn.on('data', (data) => {
-        // 相手からのデータ受信
         if (data.type === 'state') {
             enemyPlayer.x = data.x;
             enemyPlayer.y = data.y;
             enemyPlayer.angle = data.angle;
             enemyPlayer.hp = data.hp;
+            enemyPlayer.name = data.name; // 相手の名前を同期
         } else if (data.type === 'shoot') {
             bullets.push(data.bullet);
+        } else if (data.type === 'reject') {
+            alert(data.reason);
+            conn = null;
+            enemyPlayer.isConnected = false;
         }
+    });
+
+    conn.on('close', () => {
+        alert("対戦相手が切断しました。");
+        enemyPlayer.isConnected = false;
+        conn = null;
     });
 }
 
-// --- 入力イベント ---
+// --- 入力判定 ---
 window.addEventListener('keydown', (e) => {
     keys[e.key.toLowerCase()] = true;
     if (e.key.toLowerCase() === 'r') reload();
@@ -171,7 +205,7 @@ function reload() {
         myPlayer.ammo = myPlayer.maxAmmo;
         myPlayer.isReloading = false;
         updateUI();
-    }, 1500); // リロード時間 1.5秒
+    }, 1500);
 }
 
 function shoot() {
@@ -183,7 +217,6 @@ function shoot() {
     lastShootTime = now;
     updateUI();
 
-    // 銃口の位置から弾を発射
     const bullet = {
         x: myPlayer.x + Math.cos(myPlayer.angle) * myPlayer.size,
         y: myPlayer.y + Math.sin(myPlayer.angle) * myPlayer.size,
@@ -194,7 +227,6 @@ function shoot() {
 
     bullets.push(bullet);
 
-    // 相手に射撃情報を送信
     if (conn && conn.open) {
         conn.send({ type: 'shoot', bullet: bullet });
     }
@@ -209,46 +241,45 @@ function updateUI() {
 
 // --- メインゲームループ ---
 function update() {
-    // 1. 移動処理
+    // 移動
     if (keys['w'] && myPlayer.y > myPlayer.size) myPlayer.y -= myPlayer.speed;
     if (keys['s'] && myPlayer.y < canvas.height - myPlayer.size) myPlayer.y += myPlayer.speed;
     if (keys['a'] && myPlayer.x > myPlayer.size) myPlayer.x -= myPlayer.speed;
     if (keys['d'] && myPlayer.x < canvas.width - myPlayer.size) myPlayer.x += myPlayer.speed;
 
-    // 2. エイム（角度）計算
+    // 角度計算
     myPlayer.angle = Math.atan2(mousePos.y - myPlayer.y, mousePos.x - myPlayer.x);
 
-    // 3. 射撃判定
+    // 射撃
     if (isMouseDown) shoot();
 
-    // 4. 自分の状態を相手に送信
+    // 自分の最新状態（名前含む）を送信
     if (conn && conn.open) {
         conn.send({
             type: 'state',
             x: myPlayer.x,
             y: myPlayer.y,
             angle: myPlayer.angle,
-            hp: myPlayer.hp
+            hp: myPlayer.hp,
+            name: myPlayer.name
         });
     }
 
-    // 5. 弾の移動 & 判定
+    // 弾の判定
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.x += b.vx;
         b.y += b.vy;
 
-        // 画面外で消滅
         if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
             bullets.splice(i, 1);
             continue;
         }
 
-        // 被弾判定（自分に当たったか判定）
         if (b.owner !== peer.id) {
             const dist = Math.hypot(b.x - myPlayer.x, b.y - myPlayer.y);
             if (dist < myPlayer.size) {
-                myPlayer.hp -= 10; // アサルトライフルのダメージ
+                myPlayer.hp -= 10;
                 updateUI();
                 bullets.splice(i, 1);
 
@@ -264,13 +295,15 @@ function update() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 相手プレイヤー描画
-    drawPlayer(enemyPlayer.x, enemyPlayer.y, enemyPlayer.angle, enemyPlayer.color);
+    // 相手プレイヤー描画（接続中のみ）
+    if (enemyPlayer.isConnected) {
+        drawPlayer(enemyPlayer.x, enemyPlayer.y, enemyPlayer.angle, enemyPlayer.color, enemyPlayer.name);
+    }
 
     // 自分プレイヤー描画
-    drawPlayer(myPlayer.x, myPlayer.y, myPlayer.angle, myPlayer.color);
+    drawPlayer(myPlayer.x, myPlayer.y, myPlayer.angle, myPlayer.color, myPlayer.name);
 
-    // 弾の描画
+    // 弾描画
     ctx.fillStyle = '#f1c40f';
     bullets.forEach(b => {
         ctx.beginPath();
@@ -279,18 +312,29 @@ function draw() {
     });
 }
 
-function drawPlayer(x, y, angle, color) {
+function drawPlayer(x, y, angle, color, name) {
     ctx.save();
+    
+    // --- 名前の描画（頭上） ---
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#000000';
+    ctx.shadowBlur = 4;
+    ctx.fillText(name, x, y - 30); // プレイヤーの少し上
+
+    // --- 本体＆武器の回転描画 ---
     ctx.translate(x, y);
     ctx.rotate(angle);
 
     // 本体（円）
+    ctx.shadowBlur = 0; // 影をリセット
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(0, 0, 20, 0, Math.PI * 2);
     ctx.fill();
 
-    // アサルトライフル（銃身）
+    // アサルトライフル
     ctx.fillStyle = '#7f8c8d';
     ctx.fillRect(10, -3, 20, 6);
 
