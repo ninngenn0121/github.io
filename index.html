@@ -3,52 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>1vs1</title>
+    <title>1vs1 3D FPS - スマホ完全対応版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        * { touch-action: none; box-sizing: border-box; }
-        body { margin: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; user-select: none; -webkit-user-select: none; }
+        * { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
         
-        /* UIレイヤーを3D描画より確実に前面(z-index: 10)に配置 */
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; z-index: 10; }
-        
-        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; z-index: 100; overflow-y: auto; padding: 20px; }
-        .menu-box { background: #222; padding: 25px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 100%; }
-        .menu-section { margin-bottom: 15px; padding: 12px; background: #333; border-radius: 8px; }
+        /* ロビーメニュー (最前面: z-index 1000) */
+        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; overflow-y: auto; padding: 20px; }
+        .menu-box { background: #222; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 100%; }
+        .menu-section { margin-bottom: 12px; padding: 10px; background: #333; border-radius: 8px; }
         input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; touch-action: auto; }
         button { padding: 12px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; }
-        .status-text { font-weight: bold; margin-top: 10px; font-size: 14px; }
+        .status-text { font-weight: bold; margin-top: 8px; font-size: 14px; }
         .text-success { color: #2ecc71; }
         .text-error { color: #e74c3c; }
         .text-wait { color: #f1c40f; }
 
+        /* ゲーム操作UIレイヤー (z-index 100) */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; z-index: 100; }
+        
         #crosshair { position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; background: red; border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.05s, background 0.1s; pointer-events: none; }
         .shooting { transform: translate(-50%, -50%) scale(2) !important; background: yellow !important;} 
         .hit-marker { transform: translate(-50%, -50%) scale(2.5) !important; background: #2ecc71 !important; }
 
-        #status-top { position: absolute; top: 15px; left: 15px; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
-        #status-bottom { position: absolute; bottom: 15px; left: 15px; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
-        #ammo-display { position: absolute; bottom: 15px; right: 15px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #status-top { position: absolute; top: 15px; left: 15px; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 0 #000; pointer-events: none; }
+        #status-bottom { position: absolute; bottom: 15px; left: 15px; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
+        #ammo-display { position: absolute; bottom: 15px; right: 15px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
         .reloading { color: #f1c40f; }
 
         #damage-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: red; opacity: 0; transition: opacity 0.1s; pointer-events: none;}
         #flash-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: white; opacity: 0; transition: opacity 0.05s; pointer-events: none;}
         #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 3px; font-size: 12px; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; }
 
-        /* モバイル操作UI */
-        #mobile-look-area { position: absolute; top: 0; right: 0; width: 60%; height: 100%; pointer-events: auto; display: none; }
+        /* スマホ用タッチエリア設定 */
+        #mobile-look-area { position: absolute; top: 0; right: 0; width: 50%; height: 100%; pointer-events: auto; z-index: 105; display: none; }
         
-        #joystick-container { position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; display: none; pointer-events: auto; }
-        #joystick-stick { position: absolute; top: 35px; left: 35px; width: 50px; height: 50px; background: rgba(255,255,255,0.6); border-radius: 50%; pointer-events: none; }
+        #joystick-container { position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px; background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.5); border-radius: 50%; display: none; pointer-events: auto; z-index: 110; }
+        #joystick-stick { position: absolute; top: 35px; left: 35px; width: 50px; height: 50px; background: rgba(255,255,255,0.8); border-radius: 50%; pointer-events: none; }
 
-        .mobile-btn { position: absolute; background: rgba(255,255,255,0.25); border: 2px solid rgba(255,255,255,0.8); border-radius: 50%; width: 60px; height: 60px; display: none; align-items: center; justify-content: center; font-weight: bold; pointer-events: auto; font-size: 16px; color: white; }
-        .mobile-btn:active { background: rgba(255,255,255,0.6); }
-        #btn-shoot { bottom: 30px; right: 30px; width: 85px; height: 85px; background: rgba(231, 76, 60, 0.6); border-color: #e74c3c; font-size: 20px; }
-        #btn-jump { bottom: 135px; right: 30px; }
-        #btn-crouch { bottom: 30px; right: 135px; }
-        #btn-scope { bottom: 135px; right: 135px; }
-        #btn-reload { bottom: 220px; right: 30px; width: 50px; height: 50px; font-size: 14px; }
+        .mobile-btn { position: absolute; background: rgba(255,255,255,0.3); border: 2px solid rgba(255,255,255,0.9); border-radius: 50%; width: 65px; height: 65px; display: none; align-items: center; justify-content: center; font-weight: bold; pointer-events: auto; font-size: 16px; color: white; z-index: 120; }
+        .mobile-btn:active { background: rgba(255,255,255,0.7); }
+        #btn-shoot { bottom: 30px; right: 30px; width: 90px; height: 90px; background: rgba(231, 76, 60, 0.7); border-color: #e74c3c; font-size: 22px; }
+        #btn-jump { bottom: 140px; right: 30px; }
+        #btn-crouch { bottom: 30px; right: 140px; }
+        #btn-scope { bottom: 140px; right: 140px; }
+        #btn-reload { bottom: 230px; right: 30px; width: 50px; height: 50px; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -57,22 +58,22 @@
     <div class="menu-box">
         <h2 style="margin-top:0;">3D FPS 対戦ロビー</h2>
         <div class="menu-section">
-            <p style="margin:5px 0;">プレイヤー名</p>
+            <p style="margin:4px 0;">プレイヤー名</p>
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
         </div>
         <div class="menu-section">
-            <p style="margin:5px 0;">あなたのID</p>
-            <h3 id="my-id" style="color: #f1c40f; margin:5px 0;">生成中...</h3>
+            <p style="margin:4px 0;">あなたのID</p>
+            <h3 id="my-id" style="color: #f1c40f; margin:4px 0;">生成中...</h3>
             <button onclick="copyMyId()">IDをコピー</button>
         </div>
         <div class="menu-section">
-            <p style="margin:5px 0;">対戦相手のIDを入力</p>
+            <p style="margin:4px 0;">対戦相手のIDを入力</p>
             <input type="text" id="peer-id-input" placeholder="例: user-xxxxxx">
             <button id="btn-connect" onclick="connectToPeer()">接続する</button>
             <div id="connection-status" class="status-text text-wait">接続待機中...</div>
         </div>
         <div class="menu-section" id="start-section" style="opacity: 0.5; pointer-events: none;">
-            <p style="margin:5px 0;">接続完了！操作方法を選択</p>
+            <p style="margin:4px 0;">接続完了！操作方法を選択</p>
             <button id="btn-pc" onclick="startGame(false)">PC (キーボード&マウス)</button>
             <button id="btn-mobile" onclick="startGame(true)">スマホ (タッチ操作)</button>
         </div>
@@ -88,7 +89,6 @@
     <div id="ammo-display">30 / 30</div>
     <div id="enemy-name-label">Enemy</div>
 
-    <!-- モバイルコントロール用領域 -->
     <div id="mobile-look-area"></div>
     <div id="joystick-container"><div id="joystick-stick"></div></div>
     
@@ -216,10 +216,7 @@ function copyMyId() {
     navigator.clipboard.writeText(fixedPeerId).then(() => alert("IDをコピーしました！"));
 }
 
-// モバイル操作変数
 let moveInput = { x: 0, z: 0 };
-let lookTouchId = null;
-let lastLookX = 0, lastLookY = 0;
 
 function startGame(mobileMode) {
     myName = document.getElementById('player-name-input').value.trim() || "Player";
@@ -271,24 +268,23 @@ function startGame(mobileMode) {
         });
         document.addEventListener('contextmenu', e => e.preventDefault());
     } else {
-        // スマホ用UIの表示
         document.querySelectorAll('.mobile-btn').forEach(b => b.style.display = 'flex');
         document.getElementById('joystick-container').style.display = 'block';
         document.getElementById('mobile-look-area').style.display = 'block';
 
-        setupMobileControls();
+        setupPointerControls();
     }
 }
 
-// スマホ用マルチタッチ＆ジョイスティック処理
-function setupMobileControls() {
+// ★ Pointer Events API による堅牢なマルチタッチ制御 ★
+function setupPointerControls() {
     const bindBtn = (id, action) => {
         const el = document.getElementById(id);
-        el.addEventListener('touchstart', (e) => {
+        el.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             e.stopPropagation();
             action();
-        }, { passive: false });
+        });
     };
 
     bindBtn('btn-shoot', shoot);
@@ -297,68 +293,70 @@ function setupMobileControls() {
     bindBtn('btn-scope', toggleScope);
     bindBtn('btn-reload', reload);
 
-    // 視点移動エリア
+    // 視点移動エリア (画面右半分)
     const lookArea = document.getElementById('mobile-look-area');
-    lookArea.addEventListener('touchstart', (e) => {
-        for (let t of e.changedTouches) {
-            if (lookTouchId === null) {
-                lookTouchId = t.identifier;
-                lastLookX = t.clientX;
-                lastLookY = t.clientY;
-            }
-        }
-    }, { passive: false });
+    let lookPointerId = null;
+    let lastLookX = 0, lastLookY = 0;
 
-    lookArea.addEventListener('touchmove', (e) => {
-        for (let t of e.changedTouches) {
-            if (t.identifier === lookTouchId) {
-                const dx = t.clientX - lastLookX;
-                const dy = t.clientY - lastLookY;
-                player.yaw -= dx * 0.004;
-                player.pitch -= dy * 0.004;
-                player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
-                camera.rotation.set(player.pitch, player.yaw, 0);
-                lastLookX = t.clientX;
-                lastLookY = t.clientY;
-            }
+    lookArea.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (lookPointerId === null) {
+            lookPointerId = e.pointerId;
+            lastLookX = e.clientX;
+            lastLookY = e.clientY;
+            try { lookArea.setPointerCapture(e.pointerId); } catch(err){}
         }
-    }, { passive: false });
+    });
+
+    lookArea.addEventListener('pointermove', (e) => {
+        if (e.pointerId === lookPointerId) {
+            const dx = e.clientX - lastLookX;
+            const dy = e.clientY - lastLookY;
+            player.yaw -= dx * 0.004;
+            player.pitch -= dy * 0.004;
+            player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+            camera.rotation.set(player.pitch, player.yaw, 0);
+            lastLookX = e.clientX;
+            lastLookY = e.clientY;
+        }
+    });
 
     const endLook = (e) => {
-        for (let t of e.changedTouches) {
-            if (t.identifier === lookTouchId) lookTouchId = null;
+        if (e.pointerId === lookPointerId) {
+            lookPointerId = null;
+            try { lookArea.releasePointerCapture(e.pointerId); } catch(err){}
         }
     };
-    lookArea.addEventListener('touchend', endLook);
-    lookArea.addEventListener('touchcancel', endLook);
+    lookArea.addEventListener('pointerup', endLook);
+    lookArea.addEventListener('pointercancel', endLook);
 
-    // ジョイスティック移動
+    // ジョイスティック移動 (画面左下)
     const joyContainer = document.getElementById('joystick-container');
     const joyStick = document.getElementById('joystick-stick');
-    let joyTouchId = null;
-    let joyStartX = 0, joyStartY = 0;
+    let joyPointerId = null;
+    let joyCenterX = 0, joyCenterY = 0;
 
-    joyContainer.addEventListener('touchstart', (e) => {
-        for (let t of e.changedTouches) {
-            if (joyTouchId === null) {
-                joyTouchId = t.identifier;
-                const rect = joyContainer.getBoundingClientRect();
-                joyStartX = rect.left + rect.width / 2;
-                joyStartY = rect.top + rect.height / 2;
-                updateJoy(t);
-            }
+    joyContainer.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (joyPointerId === null) {
+            joyPointerId = e.pointerId;
+            const rect = joyContainer.getBoundingClientRect();
+            joyCenterX = rect.left + rect.width / 2;
+            joyCenterY = rect.top + rect.height / 2;
+            try { joyContainer.setPointerCapture(e.pointerId); } catch(err){}
+            updateJoy(e);
         }
-    }, { passive: false });
+    });
 
-    joyContainer.addEventListener('touchmove', (e) => {
-        for (let t of e.changedTouches) {
-            if (t.identifier === joyTouchId) updateJoy(t);
+    joyContainer.addEventListener('pointermove', (e) => {
+        if (e.pointerId === joyPointerId) {
+            updateJoy(e);
         }
-    }, { passive: false });
+    });
 
-    function updateJoy(touch) {
-        let dx = touch.clientX - joyStartX;
-        let dy = touch.clientY - joyStartY;
+    function updateJoy(e) {
+        let dx = e.clientX - joyCenterX;
+        let dy = e.clientY - joyCenterY;
         let dist = Math.hypot(dx, dy);
         let maxDist = 40;
         if (dist > maxDist) {
@@ -366,22 +364,21 @@ function setupMobileControls() {
             dy = (dy / dist) * maxDist;
         }
         joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
-        moveInput.x = dx / maxDist;  // 左右
-        moveInput.z = -dy / maxDist; // 前後
+        moveInput.x = dx / maxDist;
+        moveInput.z = -dy / maxDist;
     }
 
     const endJoy = (e) => {
-        for (let t of e.changedTouches) {
-            if (t.identifier === joyTouchId) {
-                joyTouchId = null;
-                joyStick.style.transform = 'translate(0px, 0px)';
-                moveInput.x = 0;
-                moveInput.z = 0;
-            }
+        if (e.pointerId === joyPointerId) {
+            joyPointerId = null;
+            joyStick.style.transform = 'translate(0px, 0px)';
+            moveInput.x = 0;
+            moveInput.z = 0;
+            try { joyContainer.releasePointerCapture(e.pointerId); } catch(err){}
         }
     };
-    joyContainer.addEventListener('touchend', endJoy);
-    joyContainer.addEventListener('touchcancel', endJoy);
+    joyContainer.addEventListener('pointerup', endJoy);
+    joyContainer.addEventListener('pointercancel', endJoy);
 }
 
 // Three.js 描画設定
@@ -392,6 +389,13 @@ const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerH
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+// ★重要: Canvas要素がタッチを吸収しないよう描画面のスタイリングを完全固定★
+renderer.domElement.style.position = 'absolute';
+renderer.domElement.style.top = '0';
+renderer.domElement.style.left = '0';
+renderer.domElement.style.zIndex = '1';
+renderer.domElement.style.pointerEvents = 'none';
 document.body.appendChild(renderer.domElement);
 
 const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -416,7 +420,7 @@ const obstacle = new THREE.Mesh(boxGeom, boxMat);
 obstacle.position.set(0, 2, 0);
 scene.add(obstacle);
 
-// 敵プレイヤーモデル
+// 敵モデル
 const enemyGroup = new THREE.Group();
 scene.add(enemyGroup);
 
