@@ -10,14 +10,17 @@
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; user-select: none; }
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
         
         /* メニュー画面 */
-        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; z-index: 100; }
-        .menu-box { background: #222; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #555; }
-        input, select { padding: 8px; margin: 5px; border-radius: 4px; border: none; }
-        button { padding: 10px 20px; margin: 10px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; }
+        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; z-index: 100; }
+        .menu-box { background: #222; padding: 30px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 90%; }
+        .menu-section { margin-bottom: 20px; padding: 15px; background: #333; border-radius: 8px; }
+        input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; transition: 0.2s; }
         button:hover { background: #2980b9; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        .success-text { color: #2ecc71; font-weight: bold; display: none; margin-top: 10px; }
 
         /* ゲーム内UI */
         #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); }
@@ -37,23 +40,38 @@
 </head>
 <body>
 
+<!-- メニュー画面 -->
 <div id="menu">
     <div class="menu-box">
-        <h2>1vs1 3D FPS</h2>
-        <div>あなたのID: <strong id="my-id">生成中...</strong></div>
-        <input type="text" id="peer-id-input" placeholder="対戦相手のIDを入力">
-        <br>
-        <button id="btn-pc">PCでプレイ (マウス＆キーボード)</button>
-        <button id="btn-mobile">モバイルでプレイ (タッチ操作)</button>
+        <h2>3D FPS 対戦ロビー</h2>
+        
+        <div class="menu-section">
+            <p>あなたのID</p>
+            <h3 id="my-id" style="color: #f1c40f;">生成中...</h3>
+            <button onclick="copyMyId()">IDをコピー</button>
+        </div>
+
+        <div class="menu-section">
+            <p>対戦相手のIDを入力</p>
+            <input type="text" id="peer-id-input" placeholder="例: user-xxxxxx">
+            <button id="btn-connect" onclick="connectToPeer()">接続する</button>
+            <div id="connection-status" class="success-text">通信を待機しています...</div>
+        </div>
+
+        <div class="menu-section" id="start-section" style="opacity: 0.5; pointer-events: none;">
+            <p>接続完了！デバイスを選んでスタート</p>
+            <button id="btn-pc" onclick="startGame(false)">PC (キーボード&マウス)</button>
+            <button id="btn-mobile" onclick="startGame(true)">スマホ (タッチ操作)</button>
+        </div>
     </div>
 </div>
 
+<!-- ゲーム画面UI -->
 <div id="ui-layer">
     <div id="damage-overlay"></div>
     <div id="crosshair"></div>
     <div id="status">HP: <span id="hp">100</span></div>
     
-    <!-- モバイル用UI -->
     <div id="mobile-joystick-area"></div>
     <div id="mobile-look-area"></div>
     <div class="mobile-btn" id="btn-shoot">撃つ</div>
@@ -64,102 +82,100 @@
 
 <script>
 // ==========================================
-// 1. 基本設定と状態
+// 1. 基本設定とPeerJS通信（ロビー機能）
 // ==========================================
 let isMobile = false;
+let isPlaying = false;
+let myHP = 100;
+
 let peer = null, conn = null;
-let fixedPeerId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 9));
+let fixedPeerId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
 localStorage.setItem('game_3d_id', fixedPeerId);
 
-let myHP = 100;
-let isPlaying = false;
+// PeerJS初期化
+peer = new Peer(fixedPeerId);
+peer.on('open', id => {
+    document.getElementById('my-id').innerText = id;
+});
+peer.on('error', err => { 
+    console.error(err);
+    alert("IDの生成に失敗しました。リロードしてください。"); 
+});
+
+// 相手から接続された時
+peer.on('connection', connection => {
+    if(conn) return connection.close(); // 既に繋がっていれば弾く
+    conn = connection;
+    setupConnection();
+});
+
+// 自分から接続する時（接続ボタンを押した時）
+function connectToPeer() {
+    const targetId = document.getElementById('peer-id-input').value.trim();
+    if(!targetId) return alert("相手のIDを入力してください！");
+    if(targetId === fixedPeerId) return alert("自分のIDです！");
+    
+    document.getElementById('btn-connect').innerText = "接続中...";
+    conn = peer.connect(targetId);
+    setupConnection();
+}
+
+// 接続成功時の共通処理
+function setupConnection() {
+    conn.on('open', () => {
+        const statusEl = document.getElementById('connection-status');
+        statusEl.style.display = 'block';
+        statusEl.innerText = "★ 対戦相手と接続しました！ ★";
+        document.getElementById('btn-connect').innerText = "接続完了";
+        
+        // スタートボタンを有効化
+        const startSec = document.getElementById('start-section');
+        startSec.style.opacity = "1";
+        startSec.style.pointerEvents = "auto";
+    });
+
+    conn.on('data', data => {
+        if (!isPlaying) return; // ゲーム開始前はデータを無視
+        
+        if (data.type === 'state') {
+            enemyGroup.position.set(data.x, data.y, data.z);
+            enemyGroup.rotation.y = data.yaw;
+            if(data.crouch) {
+                enemyBody.scale.y = 0.5;
+                enemyHead.position.y = 1.0;
+            } else {
+                enemyBody.scale.y = 1;
+                enemyHead.position.y = 1.9;
+            }
+        } else if (data.type === 'hit') {
+            myHP -= data.damage;
+            document.getElementById('hp').innerText = Math.max(0, myHP);
+            
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.opacity = 0.5;
+            setTimeout(() => overlay.style.opacity = 0, 100);
+
+            if (myHP <= 0) {
+                alert("YOU LOSE... 相手に倒されました");
+                location.reload();
+            }
+        }
+    });
+}
+
+function copyMyId() {
+    navigator.clipboard.writeText(fixedPeerId).then(() => {
+        alert("IDをコピーしました！相手に教えてあげてください。");
+    });
+}
 
 // ==========================================
-// 2. Three.js 3Dセットアップ
+// 2. ゲームスタート処理
 // ==========================================
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB); // 空の色
-
-// カメラ設定（プレイヤーの目線）
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-
-// 光源
-const light = new THREE.DirectionalLight(0xffffff, 1);
-light.position.set(5, 10, 5);
-scene.add(light);
-scene.add(new THREE.AmbientLight(0x404040));
-
-// 床（フィールド）
-const floorGeom = new THREE.PlaneGeometry(100, 100);
-const floorMat = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
-const floor = new THREE.Mesh(floorGeom, floorMat);
-floor.rotation.x = -Math.PI / 2;
-scene.add(floor);
-
-// 障害物（隠れる用）
-const boxGeom = new THREE.BoxGeometry(4, 4, 4);
-const boxMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
-const obstacle = new THREE.Mesh(boxGeom, boxMat);
-obstacle.position.set(0, 2, -10);
-scene.add(obstacle);
-
-// ==========================================
-// 3. 敵プレイヤーモデル（頭と体）
-// ==========================================
-const enemyGroup = new THREE.Group();
-scene.add(enemyGroup);
-
-// 体（的）
-const bodyGeom = new THREE.BoxGeometry(1, 1.5, 1);
-const bodyMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
-const enemyBody = new THREE.Mesh(bodyGeom, bodyMat);
-enemyBody.position.y = 0.75;
-enemyGroup.add(enemyBody);
-
-// 頭（ヘッドショット判定用）
-const headGeom = new THREE.BoxGeometry(0.8, 0.8, 0.8);
-const headMat = new THREE.MeshLambertMaterial({ color: 0xf1c40f }); // 黄色い頭
-const enemyHead = new THREE.Mesh(headGeom, headMat);
-enemyHead.position.y = 1.9; // 体の上
-enemyGroup.add(enemyHead);
-
-enemyGroup.position.set(0, -100, 0); // 初期位置は隠す
-
-// ==========================================
-// 4. プレイヤーの移動・物理演算
-// ==========================================
-const player = {
-    velocity: new THREE.Vector3(),
-    direction: new THREE.Vector3(),
-    speed: 10,
-    jumpForce: 12,
-    gravity: 30,
-    isGrounded: false,
-    isCrouching: false,
-    isScoping: false,
-    height: 1.6,
-    crouchHeight: 0.8,
-    pitch: 0,
-    yaw: 0
-};
-
-camera.position.set(0, player.height, 5);
-camera.rotation.order = 'YXZ'; // FPSカメラの回転順序
-
-const keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
-
-// ==========================================
-// 5. 操作入力 (PC & Mobile)
-// ==========================================
-document.getElementById('btn-pc').onclick = () => startGame(false);
-document.getElementById('btn-mobile').onclick = () => startGame(true);
-
 function startGame(mobileMode) {
     isMobile = mobileMode;
     document.getElementById('menu').style.display = 'none';
+    document.getElementById('ui-layer').style.display = 'block';
     isPlaying = true;
 
     if (!isMobile) {
@@ -189,23 +205,21 @@ function startGame(mobileMode) {
             if(e.code==='ShiftLeft') crouch(false);
         });
         document.addEventListener('mousedown', (e) => {
-            if(e.button === 0) shoot();       // 左クリック: 撃つ
-            if(e.button === 2) toggleScope(); // 右クリック: スコープ
+            if(e.button === 0) shoot();
+            if(e.button === 2) toggleScope();
         });
         document.addEventListener('contextmenu', e => e.preventDefault());
     } else {
-        // モバイル操作UI表示
+        // モバイル操作
         document.querySelectorAll('.mobile-btn').forEach(b => b.style.display = 'flex');
         document.getElementById('mobile-joystick-area').style.display = 'block';
         document.getElementById('mobile-look-area').style.display = 'block';
         
-        // モバイルボタンイベント
         document.getElementById('btn-shoot').ontouchstart = () => shoot();
         document.getElementById('btn-jump').ontouchstart = () => jump();
         document.getElementById('btn-crouch').ontouchstart = () => crouch(!player.isCrouching);
         document.getElementById('btn-scope').ontouchstart = () => toggleScope();
 
-        // 簡易タッチ視点移動（画面右半分）
         let lastTouchX = 0, lastTouchY = 0;
         document.getElementById('mobile-look-area').addEventListener('touchmove', (e) => {
             const touch = e.touches[0];
@@ -220,15 +234,83 @@ function startGame(mobileMode) {
         });
         document.getElementById('mobile-look-area').addEventListener('touchend', () => { lastTouchX=0; lastTouchY=0; });
 
-        // 簡易前進（画面左半分長押しで前進）※本格的なスティック実装は複雑なため前進のみ
         document.getElementById('mobile-joystick-area').addEventListener('touchstart', () => keys.w = true);
         document.getElementById('mobile-joystick-area').addEventListener('touchend', () => keys.w = false);
     }
 }
 
 // ==========================================
-// 6. アクション（ジャンプ・しゃがみ・スコープ・射撃）
+// 3. Three.js セットアップ
 // ==========================================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB); 
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(5, 10, 5);
+scene.add(light);
+scene.add(new THREE.AmbientLight(0x404040));
+
+const floorGeom = new THREE.PlaneGeometry(100, 100);
+const floorMat = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
+const floor = new THREE.Mesh(floorGeom, floorMat);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+// 障害物
+const boxGeom = new THREE.BoxGeometry(4, 4, 4);
+const boxMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+const obstacle = new THREE.Mesh(boxGeom, boxMat);
+obstacle.position.set(0, 2, -10);
+scene.add(obstacle);
+
+// ==========================================
+// 4. 敵プレイヤーモデル
+// ==========================================
+const enemyGroup = new THREE.Group();
+scene.add(enemyGroup);
+
+const bodyGeom = new THREE.BoxGeometry(1, 1.5, 1);
+const bodyMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
+const enemyBody = new THREE.Mesh(bodyGeom, bodyMat);
+enemyBody.position.y = 0.75;
+enemyGroup.add(enemyBody);
+
+const headGeom = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+const headMat = new THREE.MeshLambertMaterial({ color: 0xf1c40f });
+const enemyHead = new THREE.Mesh(headGeom, headMat);
+enemyHead.position.y = 1.9;
+enemyGroup.add(enemyHead);
+
+enemyGroup.position.set(0, -100, 0);
+
+// ==========================================
+// 5. プレイヤーの移動・アクション
+// ==========================================
+const player = {
+    velocity: new THREE.Vector3(),
+    direction: new THREE.Vector3(),
+    speed: 10,
+    jumpForce: 12,
+    gravity: 30,
+    isGrounded: false,
+    isCrouching: false,
+    isScoping: false,
+    height: 1.6,
+    crouchHeight: 0.8,
+    pitch: 0,
+    yaw: 0
+};
+
+camera.position.set(0, player.height, 5);
+camera.rotation.order = 'YXZ';
+
+const keys = { w: false, a: false, s: false, d: false };
+
 function jump() {
     if (player.isGrounded && !player.isCrouching) {
         player.velocity.y = player.jumpForce;
@@ -243,7 +325,7 @@ function crouch(isDown) {
 
 function toggleScope() {
     player.isScoping = !player.isScoping;
-    camera.fov = player.isScoping ? 30 : 75; // 視野角を狭めてズーム
+    camera.fov = player.isScoping ? 30 : 75;
     camera.updateProjectionMatrix();
 }
 
@@ -251,23 +333,12 @@ const raycaster = new THREE.Raycaster();
 function shoot() {
     if(!isPlaying) return;
     
-    // 画面中央に向かってレイ（光線）を飛ばす
     raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    
-    // 敵の頭と体に当たったか判定
     const intersects = raycaster.intersectObjects([enemyHead, enemyBody]);
     
     if (intersects.length > 0) {
         const hitObject = intersects[0].object;
-        let damage = 0;
-        
-        if (hitObject === enemyHead) {
-            damage = 50; // ヘッドショット！
-            console.log("HEADSHOT!");
-        } else {
-            damage = 15; // 胴体撃ち
-        }
-
+        let damage = hitObject === enemyHead ? 50 : 15;
         if (conn && conn.open) {
             conn.send({ type: 'hit', damage: damage });
         }
@@ -275,61 +346,7 @@ function shoot() {
 }
 
 // ==========================================
-// 7. PeerJS通信 (同期)
-// ==========================================
-peer = new Peer(fixedPeerId);
-peer.on('open', id => document.getElementById('my-id').innerText = id);
-peer.on('error', () => { peer = new Peer(fixedPeerId + Math.floor(Math.random()*1000)); });
-
-peer.on('connection', connection => {
-    if(conn) return connection.close();
-    conn = connection;
-    setupConnection();
-});
-
-document.getElementById('peer-id-input').addEventListener('change', (e) => {
-    if(e.target.value) {
-        conn = peer.connect(e.target.value);
-        setupConnection();
-    }
-});
-
-function setupConnection() {
-    conn.on('open', () => console.log("Connected"));
-    conn.on('data', data => {
-        if (data.type === 'state') {
-            // 敵の位置と回転を同期
-            enemyGroup.position.set(data.x, data.y, data.z);
-            enemyGroup.rotation.y = data.yaw;
-            
-            // 敵がしゃがんでいるかどうかの見た目同期
-            if(data.crouch) {
-                enemyBody.scale.y = 0.5;
-                enemyHead.position.y = 1.0;
-            } else {
-                enemyBody.scale.y = 1;
-                enemyHead.position.y = 1.9;
-            }
-        } else if (data.type === 'hit') {
-            // 自分がダメージを受けた
-            myHP -= data.damage;
-            document.getElementById('hp').innerText = Math.max(0, myHP);
-            
-            // ダメージエフェクト（画面赤枠）
-            const overlay = document.getElementById('damage-overlay');
-            overlay.style.opacity = 0.5;
-            setTimeout(() => overlay.style.opacity = 0, 100);
-
-            if (myHP <= 0) {
-                alert("YOU LOSE...");
-                location.reload();
-            }
-        }
-    });
-}
-
-// ==========================================
-// 8. メインループ
+// 6. メインループ
 // ==========================================
 let prevTime = performance.now();
 
@@ -341,10 +358,8 @@ function animate() {
     prevTime = time;
 
     if (isPlaying) {
-        // 重力の適用
         player.velocity.y -= player.gravity * delta;
 
-        // 移動計算
         player.direction.z = Number(keys.w) - Number(keys.s);
         player.direction.x = Number(keys.a) - Number(keys.d);
         player.direction.normalize();
@@ -352,13 +367,11 @@ function animate() {
         const moveSpeed = player.isCrouching ? player.speed * 0.4 : player.speed;
 
         if (player.direction.z !== 0 || player.direction.x !== 0) {
-            // 向いている方向に基づいて移動
             const angle = player.yaw;
             camera.position.x -= (Math.sin(angle) * player.direction.z + Math.cos(angle) * player.direction.x) * moveSpeed * delta;
             camera.position.z -= (Math.cos(angle) * player.direction.z - Math.sin(angle) * player.direction.x) * moveSpeed * delta;
         }
 
-        // Y軸（高さとジャンプ）
         camera.position.y += player.velocity.y * delta;
         
         const currentGround = player.isCrouching ? player.crouchHeight : player.height;
@@ -368,12 +381,11 @@ function animate() {
             player.isGrounded = true;
         }
 
-        // 自分の状態を相手に送信
         if (conn && conn.open) {
             conn.send({
                 type: 'state',
                 x: camera.position.x,
-                y: camera.position.y - currentGround, // 足元の座標を送る
+                y: camera.position.y - currentGround,
                 z: camera.position.z,
                 yaw: player.yaw,
                 crouch: player.isCrouching
@@ -384,7 +396,6 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-// リサイズ対応
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
