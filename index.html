@@ -25,6 +25,10 @@
             align-items: center;
             flex-wrap: wrap;
             justify-content: center;
+            z-index: 10;
+        }
+        #canvas-container {
+            position: relative;
         }
         canvas {
             background-color: #2b2b2b;
@@ -34,13 +38,25 @@
         }
         #ui {
             position: absolute;
-            top: 80px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 15px;
+            left: 20px;
             display: flex;
-            gap: 40px;
+            gap: 30px;
             font-size: 18px;
             font-weight: bold;
+            pointer-events: none;
+            text-shadow: 2px 2px 4px #000;
+        }
+        #countdown-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 80px;
+            font-weight: 900;
+            color: #f1c40f;
+            text-shadow: 0 0 20px rgba(0,0,0,0.8);
             pointer-events: none;
         }
         .reload-btn {
@@ -53,7 +69,7 @@
             cursor: pointer;
         }
         .reload-btn:hover { background-color: #c0392b; }
-        input { padding: 5px; border-radius: 4px; border: 1px solid #ccc; }
+        input, select { padding: 5px; border-radius: 4px; border: 1px solid #ccc; }
         button { padding: 5px 10px; cursor: pointer; border-radius: 4px; border: none; background: #3498db; color: white; font-weight: bold; }
         button:hover { background: #2980b9; }
     </style>
@@ -62,31 +78,58 @@
 
     <div id="controls">
         <label>名前: <input type="text" id="name-input" value="Player1" maxlength="10" style="width: 80px;"></label>
-        <span>あなたのID: <strong id="my-id">接続中...</strong></span>
+        <label>武器: 
+            <select id="weapon-select">
+                <option value="AR">アサルトライフル</option>
+                <option value="SG">ショットガン(散乱弾)</option>
+                <option value="SR">スナイパーライフル</option>
+            </select>
+        </label>
+        <span>固定ID: <strong id="my-id">生成中...</strong></span>
         <input type="text" id="peer-id-input" placeholder="対戦相手のIDを入力">
         <button id="connect-btn">対戦相手に接続</button>
         <button class="reload-btn" onclick="reload()">RELOAD (R)</button>
     </div>
 
-    <div id="ui">
-        <div>HP: <span id="hp-display">100</span></div>
-        <div>弾薬: <span id="ammo-display">30</span> / 30</div>
+    <div id="canvas-container">
+        <div id="ui">
+            <div>HP: <span id="hp-display">100</span></div>
+            <div>弾薬: <span id="ammo-display">30 / 30</span></div>
+        </div>
+        <div id="countdown-overlay"></div>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
     </div>
-
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const countdownEl = document.getElementById('countdown-overlay');
 
-// --- プレイヤー＆ゲームデータ ---
+// --- 武器パラメータ設定 ---
+const WEAPONS = {
+    AR: { name: "アサルトライフル", maxAmmo: 30, shootInterval: 150, bulletSpeed: 22, damage: 10, spread: 0.05, count: 1, reloadTime: 1500 },
+    SG: { name: "ショットガン",     maxAmmo: 8,  shootInterval: 800, bulletSpeed: 18, damage: 8,  spread: 0.25, count: 5, reloadTime: 2000 },
+    SR: { name: "スナイパー",       maxAmmo: 5,  shootInterval: 1200,bulletSpeed: 35, damage: 50, spread: 0.00, count: 1, reloadTime: 2500 }
+};
+
+let currentWeapon = WEAPONS.AR;
+
+// --- プレイヤーデータ ---
 let peer = null;
 let conn = null;
+let gameState = 'WAITING'; // WAITING, COUNTDOWN, PLAYING
+
+// ブラウザのlocalStorageに固定IDを保存/取得
+let fixedPeerId = localStorage.getItem('game_fixed_peer_id');
+if (!fixedPeerId) {
+    fixedPeerId = 'user-' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('game_fixed_peer_id', fixedPeerId);
+}
 
 const myPlayer = {
     x: 100, y: 300, size: 20, color: '#3498db',
     hp: 100, speed: 4, angle: 0,
-    ammo: 30, maxAmmo: 30, isReloading: false,
+    ammo: 30, isReloading: false,
     name: "Player1"
 };
 
@@ -101,59 +144,71 @@ const keys = {};
 let mousePos = { x: 0, y: 0 };
 let isMouseDown = false;
 let lastShootTime = 0;
-const shootInterval = 100; // 連射速度 (ms)
 
-// 名前変更の監視
+// イベントリスナー
 document.getElementById('name-input').addEventListener('input', (e) => {
     myPlayer.name = e.target.value || "No Name";
 });
 
-// --- PeerJS (通信＆1vs1制限) ---
+document.getElementById('weapon-select').addEventListener('change', (e) => {
+    currentWeapon = WEAPONS[e.target.value];
+    myPlayer.ammo = currentWeapon.maxAmmo;
+    updateUI();
+});
+
+// --- PeerJS (固定IDで初期化) ---
 function initPeer() {
-    peer = new Peer();
+    peer = new Peer(fixedPeerId);
 
     peer.on('open', (id) => {
         document.getElementById('my-id').innerText = id;
     });
 
-    // 他人からの接続要求
+    peer.on('error', (err) => {
+        // ID重複エラーが起きた場合（同じブラウザで2タブ開いた場合など）
+        if (err.type === 'unavailable-id') {
+            const tempId = fixedPeerId + '-' + Math.floor(Math.random()*1000);
+            peer = new Peer(tempId);
+            peer.on('open', (id) => document.getElementById('my-id').innerText = id);
+        }
+    });
+
     peer.on('connection', (connection) => {
-        // すでに誰かと対戦中（connが存在して通信可能）なら3人目を自動拒否
         if (conn && conn.open) {
             connection.on('open', () => {
-                connection.send({ type: 'reject', reason: 'ルームが満員です（1vs1専用）' });
+                connection.send({ type: 'reject', reason: '満員です（1vs1専用）' });
                 setTimeout(() => connection.close(), 500);
             });
             return;
         }
 
         conn = connection;
-        setupConnection();
-        // 接続を受けた側 (2P) の初期配置
-        myPlayer.x = 700;
-        myPlayer.color = '#e74c3c';
-        enemyPlayer.x = 100;
-        enemyPlayer.color = '#3498db';
+        setupConnection(false); // Host側
     });
 }
 
-// 自分から接続を仕掛ける (1P)
 document.getElementById('connect-btn').addEventListener('click', () => {
-    if (conn && conn.open) {
-        alert("すでに誰かと接続中です。");
-        return;
-    }
+    if (conn && conn.open) return;
     const peerId = document.getElementById('peer-id-input').value;
     if (peerId) {
         conn = peer.connect(peerId);
-        setupConnection();
+        setupConnection(true); // Client側
     }
 });
 
-function setupConnection() {
+function setupConnection(isClient) {
     conn.on('open', () => {
         enemyPlayer.isConnected = true;
-        console.log("対戦相手と接続されました！");
+        if (isClient) {
+            myPlayer.x = 700; myPlayer.color = '#e74c3c';
+            enemyPlayer.x = 100; enemyPlayer.color = '#3498db';
+        } else {
+            myPlayer.x = 100; myPlayer.color = '#3498db';
+            enemyPlayer.x = 700; enemyPlayer.color = '#e74c3c';
+        }
+        
+        // カウントダウン開始
+        startCountdown();
     });
 
     conn.on('data', (data) => {
@@ -162,24 +217,48 @@ function setupConnection() {
             enemyPlayer.y = data.y;
             enemyPlayer.angle = data.angle;
             enemyPlayer.hp = data.hp;
-            enemyPlayer.name = data.name; // 相手の名前を同期
+            enemyPlayer.name = data.name;
         } else if (data.type === 'shoot') {
-            bullets.push(data.bullet);
+            bullets.push(...data.bullets);
         } else if (data.type === 'reject') {
             alert(data.reason);
             conn = null;
-            enemyPlayer.isConnected = false;
         }
     });
 
     conn.on('close', () => {
         alert("対戦相手が切断しました。");
         enemyPlayer.isConnected = false;
+        gameState = 'WAITING';
         conn = null;
     });
 }
 
-// --- 入力判定 ---
+// カウントダウン処理
+function startCountdown() {
+    gameState = 'COUNTDOWN';
+    myPlayer.hp = 100;
+    myPlayer.ammo = currentWeapon.maxAmmo;
+    updateUI();
+
+    let count = 3;
+    countdownEl.innerText = count;
+
+    const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+            countdownEl.innerText = count;
+        } else if (count === 0) {
+            countdownEl.innerText = "START!";
+        } else {
+            countdownEl.innerText = "";
+            gameState = 'PLAYING';
+            clearInterval(timer);
+        }
+    }, 1000);
+}
+
+// --- 入力処理 ---
 window.addEventListener('keydown', (e) => {
     keys[e.key.toLowerCase()] = true;
     if (e.key.toLowerCase() === 'r') reload();
@@ -195,77 +274,85 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mousedown', (e) => { if (e.button === 0) isMouseDown = true; });
 canvas.addEventListener('mouseup', (e) => { if (e.button === 0) isMouseDown = false; });
 
-// --- アクション機能 ---
 function reload() {
-    if (myPlayer.isReloading || myPlayer.ammo === myPlayer.maxAmmo) return;
+    if (myPlayer.isReloading || myPlayer.ammo === currentWeapon.maxAmmo || gameState !== 'PLAYING') return;
     myPlayer.isReloading = true;
     document.getElementById('ammo-display').innerText = "リロード中...";
     
     setTimeout(() => {
-        myPlayer.ammo = myPlayer.maxAmmo;
+        myPlayer.ammo = currentWeapon.maxAmmo;
         myPlayer.isReloading = false;
         updateUI();
-    }, 1500);
+    }, currentWeapon.reloadTime);
 }
 
 function shoot() {
+    if (gameState !== 'PLAYING') return;
     const now = Date.now();
-    if (now - lastShootTime < shootInterval) return;
+    if (now - lastShootTime < currentWeapon.shootInterval) return;
     if (myPlayer.ammo <= 0 || myPlayer.isReloading) return;
 
     myPlayer.ammo--;
     lastShootTime = now;
     updateUI();
 
-    const bullet = {
-        x: myPlayer.x + Math.cos(myPlayer.angle) * myPlayer.size,
-        y: myPlayer.y + Math.sin(myPlayer.angle) * myPlayer.size,
-        vx: Math.cos(myPlayer.angle) * 12,
-        vy: Math.sin(myPlayer.angle) * 12,
-        owner: peer.id
-    };
+    const newBullets = [];
+    for (let i = 0; i < currentWeapon.count; i++) {
+        // 拡散（ばらつき）計算
+        const spreadAngle = (Math.random() - 0.5) * currentWeapon.spread;
+        const finalAngle = myPlayer.angle + spreadAngle;
 
-    bullets.push(bullet);
+        const bullet = {
+            x: myPlayer.x + Math.cos(myPlayer.angle) * myPlayer.size,
+            y: myPlayer.y + Math.sin(myPlayer.angle) * myPlayer.size,
+            vx: Math.cos(finalAngle) * currentWeapon.bulletSpeed,
+            vy: Math.sin(finalAngle) * currentWeapon.bulletSpeed,
+            damage: currentWeapon.damage,
+            owner: peer.id
+        };
+        newBullets.push(bullet);
+    }
+
+    bullets.push(...newBullets);
 
     if (conn && conn.open) {
-        conn.send({ type: 'shoot', bullet: bullet });
+        conn.send({ type: 'shoot', bullets: newBullets });
     }
 }
 
 function updateUI() {
     document.getElementById('hp-display').innerText = Math.max(0, myPlayer.hp);
     if (!myPlayer.isReloading) {
-        document.getElementById('ammo-display').innerText = myPlayer.ammo;
+        document.getElementById('ammo-display').innerText = `${myPlayer.ammo} / ${currentWeapon.maxAmmo}`;
     }
 }
 
-// --- メインゲームループ ---
+// --- メインループ ---
 function update() {
-    // 移動
-    if (keys['w'] && myPlayer.y > myPlayer.size) myPlayer.y -= myPlayer.speed;
-    if (keys['s'] && myPlayer.y < canvas.height - myPlayer.size) myPlayer.y += myPlayer.speed;
-    if (keys['a'] && myPlayer.x > myPlayer.size) myPlayer.x -= myPlayer.speed;
-    if (keys['d'] && myPlayer.x < canvas.width - myPlayer.size) myPlayer.x += myPlayer.speed;
+    if (gameState === 'PLAYING') {
+        // 移動
+        if (keys['w'] && myPlayer.y > myPlayer.size) myPlayer.y -= myPlayer.speed;
+        if (keys['s'] && myPlayer.y < canvas.height - myPlayer.size) myPlayer.y += myPlayer.speed;
+        if (keys['a'] && myPlayer.x > myPlayer.size) myPlayer.x -= myPlayer.speed;
+        if (keys['d'] && myPlayer.x < canvas.width - myPlayer.size) myPlayer.x += myPlayer.speed;
 
-    // 角度計算
+        // 射撃
+        if (isMouseDown) shoot();
+    }
+
+    // 角度計算（カウントダウン中でも向き変更は可能）
     myPlayer.angle = Math.atan2(mousePos.y - myPlayer.y, mousePos.x - myPlayer.x);
 
-    // 射撃
-    if (isMouseDown) shoot();
-
-    // 自分の最新状態（名前含む）を送信
+    // 送信
     if (conn && conn.open) {
         conn.send({
             type: 'state',
-            x: myPlayer.x,
-            y: myPlayer.y,
-            angle: myPlayer.angle,
-            hp: myPlayer.hp,
-            name: myPlayer.name
+            x: myPlayer.x, y: myPlayer.y, angle: myPlayer.angle,
+            hp: myPlayer.hp, name: myPlayer.name
         });
     }
 
-    // 弾の判定
+    // 弾移動＆判定
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.x += b.vx;
@@ -276,15 +363,16 @@ function update() {
             continue;
         }
 
-        if (b.owner !== peer.id) {
+        if (b.owner !== peer.id && gameState === 'PLAYING') {
             const dist = Math.hypot(b.x - myPlayer.x, b.y - myPlayer.y);
             if (dist < myPlayer.size) {
-                myPlayer.hp -= 10;
+                myPlayer.hp -= b.damage;
                 updateUI();
                 bullets.splice(i, 1);
 
                 if (myPlayer.hp <= 0) {
-                    alert("敗北しました...");
+                    alert("YOU LOSE...");
+                    gameState = 'WAITING';
                     location.reload();
                 }
             }
@@ -295,15 +383,13 @@ function update() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 相手プレイヤー描画（接続中のみ）
     if (enemyPlayer.isConnected) {
         drawPlayer(enemyPlayer.x, enemyPlayer.y, enemyPlayer.angle, enemyPlayer.color, enemyPlayer.name);
     }
 
-    // 自分プレイヤー描画
     drawPlayer(myPlayer.x, myPlayer.y, myPlayer.angle, myPlayer.color, myPlayer.name);
 
-    // 弾描画
+    // 弾（黄色）
     ctx.fillStyle = '#f1c40f';
     bullets.forEach(b => {
         ctx.beginPath();
@@ -315,26 +401,25 @@ function draw() {
 function drawPlayer(x, y, angle, color, name) {
     ctx.save();
     
-    // --- 名前の描画（頭上） ---
+    // 頭上の名前
     ctx.font = 'bold 14px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.shadowColor = '#000000';
     ctx.shadowBlur = 4;
-    ctx.fillText(name, x, y - 30); // プレイヤーの少し上
+    ctx.fillText(name, x, y - 30);
 
-    // --- 本体＆武器の回転描画 ---
     ctx.translate(x, y);
     ctx.rotate(angle);
 
-    // 本体（円）
-    ctx.shadowBlur = 0; // 影をリセット
+    // 本体
+    ctx.shadowBlur = 0;
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(0, 0, 20, 0, Math.PI * 2);
     ctx.fill();
 
-    // アサルトライフル
+    // 銃身
     ctx.fillStyle = '#7f8c8d';
     ctx.fillRect(10, -3, 20, 6);
 
@@ -347,7 +432,6 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// 起動
 initPeer();
 gameLoop();
 </script>
