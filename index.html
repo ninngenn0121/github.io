@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>1vs1 3D FPS - 修正版</title>
+    <title>1vs1 3D FPS</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -148,7 +148,6 @@ function setupConnection() {
             document.getElementById('enemy-name-label').innerText = enemyName;
         }
         else if (data.type === 'state' && isPlaying) {
-            // [修正] Y座標はそのまま受け取る（送信側で計算済み）
             enemyGroup.position.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
             if(data.crouch) {
@@ -201,6 +200,7 @@ function startGame(mobileMode) {
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
                 player.yaw -= e.movementX * 0.002;
+                // [修正] e.movementYの符号をマイナスにして、一般的なFPSの挙動（マウス上で上を向く）に変更
                 player.pitch -= e.movementY * 0.002;
                 player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
                 camera.rotation.set(player.pitch, player.yaw, 0);
@@ -213,7 +213,7 @@ function startGame(mobileMode) {
             if(e.code==='KeyD') keys.d = true;
             if(e.code==='Space') jump();
             if(e.code==='ShiftLeft') crouch(true);
-            if(e.code==='KeyR' || e.key === 'r') reload(); // [修正] Rキーの検知を確実にする
+            if(e.code==='KeyR' || e.key === 'r') reload(); 
         });
         document.addEventListener('keyup', (e) => {
             if(e.code==='KeyW') keys.w = false;
@@ -243,6 +243,7 @@ function startGame(mobileMode) {
             const touch = e.touches[0];
             if(lastTouchX) {
                 player.yaw -= (touch.clientX - lastTouchX) * 0.005;
+                // スマホ操作も同様に合わせる
                 player.pitch -= (touch.clientY - lastTouchY) * 0.005;
                 player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
                 camera.rotation.set(player.pitch, player.yaw, 0);
@@ -365,7 +366,7 @@ function shoot() {
     if(!isPlaying || isReloading) return;
     
     if (currentAmmo <= 0) {
-        reload(); // [修正] 弾が0の時に撃とうとすると自動リロード
+        reload();
         return;
     }
 
@@ -382,6 +383,7 @@ function shoot() {
         crosshair.classList.remove('shooting');
     }, 50);
 
+    // 反動の方向もマウス操作に合わせて修正
     player.pitch += 0.02;
     camera.rotation.set(player.pitch, player.yaw, 0);
     
@@ -452,8 +454,6 @@ function animate() {
         }
 
         if (conn && conn.open) {
-            // [修正] カメラのY座標から高さを引くのではなく、地面(Y=0)を基準にして送る
-            // camera.position.yは目の高さ。モデルの原点は足元(Y=0)にしたい。
             const modelY = camera.position.y - currentGround; 
             
             conn.send({
