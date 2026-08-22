@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>1vs1</title>
+    <title>1vs1 3D FPS - スマホ操作修正版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         * { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
         
-        /* ロビーメニュー (最前面: z-index 1000) */
+        /* ロビーメニュー */
         #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; overflow-y: auto; padding: 20px; }
         .menu-box { background: #222; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 100%; }
         .menu-section { margin-bottom: 12px; padding: 10px; background: #333; border-radius: 8px; }
@@ -21,7 +21,7 @@
         .text-error { color: #e74c3c; }
         .text-wait { color: #f1c40f; }
 
-        /* ゲーム操作UIレイヤー (z-index 100) */
+        /* ゲーム操作UIレイヤー */
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; z-index: 100; }
         
         #crosshair { position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; background: red; border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.05s, background 0.1s; pointer-events: none; }
@@ -241,7 +241,8 @@ function startGame(mobileMode) {
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
                 player.yaw -= e.movementX * 0.002;
-                player.pitch -= e.movementY * 0.002;
+                // PC版のマウス縦移動の反転も修正
+                player.pitch += e.movementY * 0.002;
                 player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
                 camera.rotation.set(player.pitch, player.yaw, 0);
             }
@@ -276,7 +277,7 @@ function startGame(mobileMode) {
     }
 }
 
-// ★ Pointer Events API による堅牢なマルチタッチ制御 ★
+// モバイルタッチ操作処理 (反転制御修正済み)
 function setupPointerControls() {
     const bindBtn = (id, action) => {
         const el = document.getElementById(id);
@@ -312,9 +313,12 @@ function setupPointerControls() {
         if (e.pointerId === lookPointerId) {
             const dx = e.clientX - lastLookX;
             const dy = e.clientY - lastLookY;
+            
             player.yaw -= dx * 0.004;
-            player.pitch -= dy * 0.004;
+            // 修正: dyの加減算を逆にして、指を上に動かしたら上を向くように修正
+            player.pitch += dy * 0.004; 
             player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+            
             camera.rotation.set(player.pitch, player.yaw, 0);
             lastLookX = e.clientX;
             lastLookY = e.clientY;
@@ -364,7 +368,9 @@ function setupPointerControls() {
             dy = (dy / dist) * maxDist;
         }
         joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
-        moveInput.x = dx / maxDist;
+        
+        // 修正: moveInput.x の符号を反転して左に倒すと左へ移動するように修正
+        moveInput.x = -dx / maxDist; 
         moveInput.z = -dy / maxDist;
     }
 
@@ -390,7 +396,6 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-// ★重要: Canvas要素がタッチを吸収しないよう描画面のスタイリングを完全固定★
 renderer.domElement.style.position = 'absolute';
 renderer.domElement.style.top = '0';
 renderer.domElement.style.left = '0';
