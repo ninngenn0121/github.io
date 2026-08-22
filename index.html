@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>1vs1 3D FPS</title>
+    <title>1vs1 3D FPS - 改良版</title>
     <!-- 3D描画用ライブラリ Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- 通信用ライブラリ PeerJS -->
@@ -13,19 +13,29 @@
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
         
         /* メニュー画面 */
-        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; z-index: 100; }
-        .menu-box { background: #222; padding: 30px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 90%; }
+        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; z-index: 100; overflow-y: auto; padding: 20px; box-sizing: border-box;}
+        .menu-box { background: #222; padding: 30px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 100%; }
         .menu-section { margin-bottom: 20px; padding: 15px; background: #333; border-radius: 8px; }
-        input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; }
+        input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; box-sizing: border-box; }
         button { padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; transition: 0.2s; }
         button:hover { background: #2980b9; }
         button:disabled { background: #555; cursor: not-allowed; }
         .success-text { color: #2ecc71; font-weight: bold; display: none; margin-top: 10px; }
 
         /* ゲーム内UI */
-        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); }
-        #status { position: absolute; bottom: 20px; left: 20px; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.05s; }
+        .shooting { transform: translate(-50%, -50%) scale(2) !important; background: yellow !important;} /* 発射時のクロスヘア変化 */
+
+        #status-top { position: absolute; top: 20px; left: 20px; font-size: 20px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
+        #status-bottom { position: absolute; bottom: 20px; left: 20px; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #ammo-display { position: absolute; bottom: 20px; right: 20px; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        .reloading { color: #f1c40f; }
+
         #damage-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: red; opacity: 0; transition: opacity 0.1s; }
+        #flash-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: white; opacity: 0; transition: opacity 0.05s; pointer-events: none;} /* マズルフラッシュ用 */
+
+        /* 敵の名前表示用ラベル */
+        #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.5); padding: 2px 5px; border-radius: 3px; font-size: 14px; pointer-events: none; transform: translate(-50%, -100%); }
 
         /* モバイル用ボタン */
         .mobile-btn { position: absolute; background: rgba(255,255,255,0.2); border: 2px solid white; border-radius: 50%; width: 60px; height: 60px; display: none; align-items: center; justify-content: center; font-weight: bold; pointer-events: auto; }
@@ -34,6 +44,7 @@
         #btn-jump { bottom: 130px; right: 30px; }
         #btn-crouch { bottom: 30px; right: 130px; }
         #btn-scope { bottom: 130px; right: 130px; }
+        #btn-reload { bottom: 210px; right: 30px; width: 50px; height: 50px; font-size: 12px; }
         #mobile-joystick-area { position: absolute; top: 0; left: 0; width: 50%; height: 100%; pointer-events: auto; display: none; }
         #mobile-look-area { position: absolute; top: 0; left: 50%; width: 50%; height: 100%; pointer-events: auto; display: none; }
     </style>
@@ -45,6 +56,11 @@
     <div class="menu-box">
         <h2>3D FPS 対戦ロビー</h2>
         
+        <div class="menu-section">
+            <p>プレイヤー名</p>
+            <input type="text" id="player-name-input" placeholder="名前を入力（例: 太郎）" value="Player">
+        </div>
+
         <div class="menu-section">
             <p>あなたのID</p>
             <h3 id="my-id" style="color: #f1c40f;">生成中...</h3>
@@ -62,22 +78,30 @@
             <p>接続完了！デバイスを選んでスタート</p>
             <button id="btn-pc" onclick="startGame(false)">PC (キーボード&マウス)</button>
             <button id="btn-mobile" onclick="startGame(true)">スマホ (タッチ操作)</button>
+            <p style="font-size: 12px; margin-top: 10px;">PC: [R]キーでリロード</p>
         </div>
     </div>
 </div>
 
 <!-- ゲーム画面UI -->
 <div id="ui-layer">
+    <div id="flash-overlay"></div>
     <div id="damage-overlay"></div>
     <div id="crosshair"></div>
-    <div id="status">HP: <span id="hp">100</span></div>
     
+    <div id="status-top">Target: <span id="target-name">???</span></div>
+    <div id="status-bottom">HP: <span id="hp">100</span></div>
+    <div id="ammo-display"><span id="ammo">30</span> / 30</div>
+    
+    <div id="enemy-name-label">Enemy</div>
+
     <div id="mobile-joystick-area"></div>
     <div id="mobile-look-area"></div>
     <div class="mobile-btn" id="btn-shoot">撃つ</div>
     <div class="mobile-btn" id="btn-jump">跳</div>
     <div class="mobile-btn" id="btn-crouch">屈</div>
     <div class="mobile-btn" id="btn-scope">覗</div>
+    <div class="mobile-btn" id="btn-reload">R</div>
 </div>
 
 <script>
@@ -87,29 +111,33 @@
 let isMobile = false;
 let isPlaying = false;
 let myHP = 100;
+let myName = "Player";
+let enemyName = "Enemy";
+let isHost = false; // 自分が接続を待つ側か、接続しに行った側か
+
+// 銃のステータス
+const MAX_AMMO = 30;
+let currentAmmo = MAX_AMMO;
+let isReloading = false;
 
 let peer = null, conn = null;
 let fixedPeerId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
 localStorage.setItem('game_3d_id', fixedPeerId);
 
-// PeerJS初期化
 peer = new Peer(fixedPeerId);
 peer.on('open', id => {
     document.getElementById('my-id').innerText = id;
 });
-peer.on('error', err => { 
-    console.error(err);
-    alert("IDの生成に失敗しました。リロードしてください。"); 
-});
 
-// 相手から接続された時
+// 相手から接続された時（ホスト側）
 peer.on('connection', connection => {
-    if(conn) return connection.close(); // 既に繋がっていれば弾く
+    if(conn) return connection.close();
     conn = connection;
+    isHost = true;
     setupConnection();
 });
 
-// 自分から接続する時（接続ボタンを押した時）
+// 自分から接続する時（ゲスト側）
 function connectToPeer() {
     const targetId = document.getElementById('peer-id-input').value.trim();
     if(!targetId) return alert("相手のIDを入力してください！");
@@ -117,10 +145,10 @@ function connectToPeer() {
     
     document.getElementById('btn-connect').innerText = "接続中...";
     conn = peer.connect(targetId);
+    isHost = false;
     setupConnection();
 }
 
-// 接続成功時の共通処理
 function setupConnection() {
     conn.on('open', () => {
         const statusEl = document.getElementById('connection-status');
@@ -128,16 +156,22 @@ function setupConnection() {
         statusEl.innerText = "★ 対戦相手と接続しました！ ★";
         document.getElementById('btn-connect').innerText = "接続完了";
         
-        // スタートボタンを有効化
         const startSec = document.getElementById('start-section');
         startSec.style.opacity = "1";
         startSec.style.pointerEvents = "auto";
+        
+        // 接続完了時に自分の名前を送信
+        myName = document.getElementById('player-name-input').value.trim() || "Player";
+        conn.send({ type: 'init', name: myName });
     });
 
     conn.on('data', data => {
-        if (!isPlaying) return; // ゲーム開始前はデータを無視
-        
-        if (data.type === 'state') {
+        if (data.type === 'init') {
+            enemyName = data.name;
+            document.getElementById('target-name').innerText = enemyName;
+            document.getElementById('enemy-name-label').innerText = enemyName;
+        }
+        else if (data.type === 'state' && isPlaying) {
             enemyGroup.position.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
             if(data.crouch) {
@@ -147,7 +181,8 @@ function setupConnection() {
                 enemyBody.scale.y = 1;
                 enemyHead.position.y = 1.9;
             }
-        } else if (data.type === 'hit') {
+        } 
+        else if (data.type === 'hit' && isPlaying) {
             myHP -= data.damage;
             document.getElementById('hp').innerText = Math.max(0, myHP);
             
@@ -156,7 +191,7 @@ function setupConnection() {
             setTimeout(() => overlay.style.opacity = 0, 100);
 
             if (myHP <= 0) {
-                alert("YOU LOSE... 相手に倒されました");
+                alert(`YOU LOSE... ${enemyName} に倒されました`);
                 location.reload();
             }
         }
@@ -170,16 +205,27 @@ function copyMyId() {
 }
 
 // ==========================================
-// 2. ゲームスタート処理
+// 2. ゲームスタート処理（初期位置の調整）
 // ==========================================
 function startGame(mobileMode) {
+    myName = document.getElementById('player-name-input').value.trim() || "Player";
     isMobile = mobileMode;
     document.getElementById('menu').style.display = 'none';
     document.getElementById('ui-layer').style.display = 'block';
+    
+    // 初期位置の設定：ホストとゲストで向かい合うように配置
+    if (isHost) {
+        camera.position.set(0, player.height, 10);
+        player.yaw = Math.PI; // 180度回転
+    } else {
+        camera.position.set(0, player.height, -10);
+        player.yaw = 0;
+    }
+    camera.rotation.set(0, player.yaw, 0);
+
     isPlaying = true;
 
     if (!isMobile) {
-        // PC操作
         document.body.requestPointerLock();
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
@@ -196,6 +242,7 @@ function startGame(mobileMode) {
             if(e.code==='KeyD') keys.d = true;
             if(e.code==='Space') jump();
             if(e.code==='ShiftLeft') crouch(true);
+            if(e.code==='KeyR') reload();
         });
         document.addEventListener('keyup', (e) => {
             if(e.code==='KeyW') keys.w = false;
@@ -210,7 +257,6 @@ function startGame(mobileMode) {
         });
         document.addEventListener('contextmenu', e => e.preventDefault());
     } else {
-        // モバイル操作
         document.querySelectorAll('.mobile-btn').forEach(b => b.style.display = 'flex');
         document.getElementById('mobile-joystick-area').style.display = 'block';
         document.getElementById('mobile-look-area').style.display = 'block';
@@ -219,6 +265,7 @@ function startGame(mobileMode) {
         document.getElementById('btn-jump').ontouchstart = () => jump();
         document.getElementById('btn-crouch').ontouchstart = () => crouch(!player.isCrouching);
         document.getElementById('btn-scope').ontouchstart = () => toggleScope();
+        document.getElementById('btn-reload').ontouchstart = () => reload();
 
         let lastTouchX = 0, lastTouchY = 0;
         document.getElementById('mobile-look-area').addEventListener('touchmove', (e) => {
@@ -255,17 +302,23 @@ light.position.set(5, 10, 5);
 scene.add(light);
 scene.add(new THREE.AmbientLight(0x404040));
 
+// グリッド付きの床にして距離感をつかみやすくする
 const floorGeom = new THREE.PlaneGeometry(100, 100);
 const floorMat = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
 const floor = new THREE.Mesh(floorGeom, floorMat);
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
+const gridHelper = new THREE.GridHelper(100, 50, 0x000000, 0x000000);
+gridHelper.material.opacity = 0.2;
+gridHelper.material.transparent = true;
+gridHelper.position.y = 0.01;
+scene.add(gridHelper);
 
-// 障害物
+// 中央の障害物
 const boxGeom = new THREE.BoxGeometry(4, 4, 4);
 const boxMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
 const obstacle = new THREE.Mesh(boxGeom, boxMat);
-obstacle.position.set(0, 2, -10);
+obstacle.position.set(0, 2, 0);
 scene.add(obstacle);
 
 // ==========================================
@@ -286,15 +339,15 @@ const enemyHead = new THREE.Mesh(headGeom, headMat);
 enemyHead.position.y = 1.9;
 enemyGroup.add(enemyHead);
 
-enemyGroup.position.set(0, -100, 0);
+enemyGroup.position.set(0, -100, 0); // 初期位置は画面外
 
 // ==========================================
-// 5. プレイヤーの移動・アクション
+// 5. プレイヤーのアクション（射撃・リロード）
 // ==========================================
 const player = {
     velocity: new THREE.Vector3(),
     direction: new THREE.Vector3(),
-    speed: 10,
+    speed: 15,
     jumpForce: 12,
     gravity: 30,
     isGrounded: false,
@@ -305,9 +358,6 @@ const player = {
     pitch: 0,
     yaw: 0
 };
-
-camera.position.set(0, player.height, 5);
-camera.rotation.order = 'YXZ';
 
 const keys = { w: false, a: false, s: false, d: false };
 
@@ -329,10 +379,55 @@ function toggleScope() {
     camera.updateProjectionMatrix();
 }
 
+function reload() {
+    if (isReloading || currentAmmo === MAX_AMMO) return;
+    isReloading = true;
+    const ammoEl = document.getElementById('ammo-display');
+    ammoEl.classList.add('reloading');
+    ammoEl.innerHTML = `Reloading...`;
+    
+    setTimeout(() => {
+        currentAmmo = MAX_AMMO;
+        isReloading = false;
+        ammoEl.classList.remove('reloading');
+        updateAmmoDisplay();
+    }, 1500); // 1.5秒でリロード
+}
+
+function updateAmmoDisplay() {
+    if(!isReloading) {
+        document.getElementById('ammo').innerText = currentAmmo;
+    }
+}
+
 const raycaster = new THREE.Raycaster();
 function shoot() {
-    if(!isPlaying) return;
+    if(!isPlaying || isReloading) return;
     
+    if (currentAmmo <= 0) {
+        reload();
+        return;
+    }
+
+    currentAmmo--;
+    updateAmmoDisplay();
+
+    // 撃っている感の演出（画面フラッシュとクロスヘアの拡大）
+    const flash = document.getElementById('flash-overlay');
+    flash.style.opacity = 0.3;
+    const crosshair = document.getElementById('crosshair');
+    crosshair.classList.add('shooting');
+    
+    setTimeout(() => {
+        flash.style.opacity = 0;
+        crosshair.classList.remove('shooting');
+    }, 50);
+
+    // 反動（少しだけ視点を上に跳ね上げる）
+    player.pitch += 0.02;
+    camera.rotation.set(player.pitch, player.yaw, 0);
+    
+    // 判定
     raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
     const intersects = raycaster.intersectObjects([enemyHead, enemyBody]);
     
@@ -342,6 +437,30 @@ function shoot() {
         if (conn && conn.open) {
             conn.send({ type: 'hit', damage: damage });
         }
+    }
+}
+
+// 敵の頭上に名前を表示するための処理
+function updateEnemyNameLabel() {
+    if (!isPlaying) return;
+    
+    // 敵の座標を画面上の2D座標に変換
+    const enemyPos = enemyGroup.position.clone();
+    enemyPos.y += 2.5; // 頭より少し上
+    enemyPos.project(camera);
+
+    const x = (enemyPos.x * .5 + .5) * window.innerWidth;
+    const y = (enemyPos.y * -.5 + .5) * window.innerHeight;
+
+    const label = document.getElementById('enemy-name-label');
+    
+    // 敵がカメラの前にいる（画面内にいる）場合のみ表示
+    if (enemyPos.z < 1 && x > 0 && x < window.innerWidth && y > 0 && y < window.innerHeight) {
+        label.style.display = 'block';
+        label.style.left = `${x}px`;
+        label.style.top = `${y}px`;
+    } else {
+        label.style.display = 'none';
     }
 }
 
@@ -391,6 +510,8 @@ function animate() {
                 crouch: player.isCrouching
             });
         }
+        
+        updateEnemyNameLabel();
     }
 
     renderer.render(scene, camera);
