@@ -117,9 +117,10 @@ let currentWeapon = WEAPONS.AR;
 // --- プレイヤーデータ ---
 let peer = null;
 let conn = null;
-let gameState = 'WAITING'; // WAITING, COUNTDOWN, PLAYING
+let gameState = 'WAITING'; // WAITING (ソロ練習), COUNTDOWN, PLAYING, FINISHED
+let isEndingGame = false; // 勝敗判定中のフラグ
 
-// ブラウザのlocalStorageに固定IDを保存/取得
+// ブラウザのlocalStorageに固定IDを保存
 let fixedPeerId = localStorage.getItem('game_fixed_peer_id');
 if (!fixedPeerId) {
     fixedPeerId = 'user-' + Math.random().toString(36).substr(2, 9);
@@ -156,7 +157,7 @@ document.getElementById('weapon-select').addEventListener('change', (e) => {
     updateUI();
 });
 
-// --- PeerJS (固定IDで初期化) ---
+// --- PeerJS (オンライン通信) ---
 function initPeer() {
     peer = new Peer(fixedPeerId);
 
@@ -165,7 +166,6 @@ function initPeer() {
     });
 
     peer.on('error', (err) => {
-        // ID重複エラーが起きた場合（同じブラウザで2タブ開いた場合など）
         if (err.type === 'unavailable-id') {
             const tempId = fixedPeerId + '-' + Math.floor(Math.random()*1000);
             peer = new Peer(tempId);
@@ -183,7 +183,7 @@ function initPeer() {
         }
 
         conn = connection;
-        setupConnection(false); // Host側
+        setupConnection(false);
     });
 }
 
@@ -192,13 +192,16 @@ document.getElementById('connect-btn').addEventListener('click', () => {
     const peerId = document.getElementById('peer-id-input').value;
     if (peerId) {
         conn = peer.connect(peerId);
-        setupConnection(true); // Client側
+        setupConnection(true);
     }
 });
 
 function setupConnection(isClient) {
     conn.on('open', () => {
         enemyPlayer.isConnected = true;
+        isEndingGame = false;
+        bullets = []; // 練習時の弾を消去
+        
         if (isClient) {
             myPlayer.x = 700; myPlayer.color = '#e74c3c';
             enemyPlayer.x = 100; enemyPlayer.color = '#3498db';
@@ -207,7 +210,6 @@ function setupConnection(isClient) {
             enemyPlayer.x = 700; enemyPlayer.color = '#e74c3c';
         }
         
-        // カウントダウン開始
         startCountdown();
     });
 
@@ -220,6 +222,16 @@ function setupConnection(isClient) {
             enemyPlayer.name = data.name;
         } else if (data.type === 'shoot') {
             bullets.push(...data.bullets);
+        } else if (data.type === 'gameover') {
+            // 相手側からゲーム終了通知が届いた場合（相手が撃破された＝自分が勝利）
+            if (!isEndingGame) {
+                isEndingGame = true;
+                gameState = 'FINISHED';
+                setTimeout(() => {
+                    alert("YOU WIN! 🎉 相手を撃破しました！");
+                    resetToWaiting();
+                }, 100);
+            }
         } else if (data.type === 'reject') {
             alert(data.reason);
             conn = null;
@@ -227,11 +239,25 @@ function setupConnection(isClient) {
     });
 
     conn.on('close', () => {
-        alert("対戦相手が切断しました。");
-        enemyPlayer.isConnected = false;
-        gameState = 'WAITING';
-        conn = null;
+        // ゲーム終了時以外の不意の切断時のみ警告を表示
+        if (!isEndingGame && gameState === 'PLAYING') {
+            alert("対戦相手が通信を切断しました。");
+        }
+        resetToWaiting();
     });
+}
+
+function resetToWaiting() {
+    gameState = 'WAITING';
+    enemyPlayer.isConnected = false;
+    isEndingGame = false;
+    if (conn) {
+        conn.close();
+        conn = null;
+    }
+    myPlayer.hp = 100;
+    myPlayer.ammo = currentWeapon.maxAmmo;
+    updateUI();
 }
 
 // カウントダウン処理
@@ -275,7 +301,7 @@ canvas.addEventListener('mousedown', (e) => { if (e.button === 0) isMouseDown = 
 canvas.addEventListener('mouseup', (e) => { if (e.button === 0) isMouseDown = false; });
 
 function reload() {
-    if (myPlayer.isReloading || myPlayer.ammo === currentWeapon.maxAmmo || gameState !== 'PLAYING') return;
+    if (myPlayer.isReloading || myPlayer.ammo === currentWeapon.maxAmmo || gameState === 'COUNTDOWN') return;
     myPlayer.isReloading = true;
     document.getElementById('ammo-display').innerText = "リロード中...";
     
@@ -287,7 +313,9 @@ function reload() {
 }
 
 function shoot() {
-    if (gameState !== 'PLAYING') return;
+    // COUNTDOWN中だけ射撃不可（WAITING中とPLAYING中は可能）
+    if (gameState === 'COUNTDOWN') return;
+    
     const now = Date.now();
     if (now - lastShootTime < currentWeapon.shootInterval) return;
     if (myPlayer.ammo <= 0 || myPlayer.isReloading) return;
@@ -298,7 +326,6 @@ function shoot() {
 
     const newBullets = [];
     for (let i = 0; i < currentWeapon.count; i++) {
-        // 拡散（ばらつき）計算
         const spreadAngle = (Math.random() - 0.5) * currentWeapon.spread;
         const finalAngle = myPlayer.angle + spreadAngle;
 
@@ -315,7 +342,7 @@ function shoot() {
 
     bullets.push(...newBullets);
 
-    if (conn && conn.open) {
+    if (conn && conn.open && gameState === 'PLAYING') {
         conn.send({ type: 'shoot', bullets: newBullets });
     }
 }
@@ -329,22 +356,21 @@ function updateUI() {
 
 // --- メインループ ---
 function update() {
-    if (gameState === 'PLAYING') {
-        // 移動
+    // WAITING（ソロ練習）または PLAYING（対戦中）の時に移動可能
+    if (gameState === 'WAITING' || gameState === 'PLAYING') {
         if (keys['w'] && myPlayer.y > myPlayer.size) myPlayer.y -= myPlayer.speed;
         if (keys['s'] && myPlayer.y < canvas.height - myPlayer.size) myPlayer.y += myPlayer.speed;
         if (keys['a'] && myPlayer.x > myPlayer.size) myPlayer.x -= myPlayer.speed;
         if (keys['d'] && myPlayer.x < canvas.width - myPlayer.size) myPlayer.x += myPlayer.speed;
 
-        // 射撃
         if (isMouseDown) shoot();
     }
 
-    // 角度計算（カウントダウン中でも向き変更は可能）
+    // エイム角度計算
     myPlayer.angle = Math.atan2(mousePos.y - myPlayer.y, mousePos.x - myPlayer.x);
 
-    // 送信
-    if (conn && conn.open) {
+    // オンラインデータ送信
+    if (conn && conn.open && gameState === 'PLAYING') {
         conn.send({
             type: 'state',
             x: myPlayer.x, y: myPlayer.y, angle: myPlayer.angle,
@@ -352,17 +378,19 @@ function update() {
         });
     }
 
-    // 弾移動＆判定
+    // 弾移動＆被弾判定
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.x += b.vx;
         b.y += b.vy;
 
+        // 画面外で消滅
         if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
             bullets.splice(i, 1);
             continue;
         }
 
+        // 対戦相手からの攻撃が自分にヒットした判定（PLAYING中のみ）
         if (b.owner !== peer.id && gameState === 'PLAYING') {
             const dist = Math.hypot(b.x - myPlayer.x, b.y - myPlayer.y);
             if (dist < myPlayer.size) {
@@ -370,10 +398,20 @@ function update() {
                 updateUI();
                 bullets.splice(i, 1);
 
-                if (myPlayer.hp <= 0) {
-                    alert("YOU LOSE...");
-                    gameState = 'WAITING';
-                    location.reload();
+                // 自分が倒された場合（敗北処理）
+                if (myPlayer.hp <= 0 && !isEndingGame) {
+                    isEndingGame = true;
+                    gameState = 'FINISHED';
+
+                    // 相手にゲームオーバー（自分が倒された）イベントを通知
+                    if (conn && conn.open) {
+                        conn.send({ type: 'gameover', winner: 'enemy' });
+                    }
+
+                    setTimeout(() => {
+                        alert("YOU LOSE... 倒されました。");
+                        resetToWaiting();
+                    }, 100);
                 }
             }
         }
@@ -383,13 +421,15 @@ function update() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // 相手プレイヤー（接続中のみ）
     if (enemyPlayer.isConnected) {
         drawPlayer(enemyPlayer.x, enemyPlayer.y, enemyPlayer.angle, enemyPlayer.color, enemyPlayer.name);
     }
 
+    // 自分プレイヤー
     drawPlayer(myPlayer.x, myPlayer.y, myPlayer.angle, myPlayer.color, myPlayer.name);
 
-    // 弾（黄色）
+    // 弾描画
     ctx.fillStyle = '#f1c40f';
     bullets.forEach(b => {
         ctx.beginPath();
