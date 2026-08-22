@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>1vs1</title>
+    <title>1vs1 3D FPS - 通信＆当たり判定強化版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -16,20 +16,24 @@
         input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; box-sizing: border-box; }
         button { padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; transition: 0.2s; }
         button:hover { background: #2980b9; }
-        .success-text { color: #2ecc71; font-weight: bold; display: none; margin-top: 10px; }
+        .status-text { font-weight: bold; margin-top: 10px; font-size: 14px; }
+        .text-success { color: #2ecc71; }
+        .text-error { color: #e74c3c; }
+        .text-wait { color: #f1c40f; }
 
-        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.05s; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.05s, background 0.1s; }
         .shooting { transform: translate(-50%, -50%) scale(2) !important; background: yellow !important;} 
+        .hit-marker { transform: translate(-50%, -50%) scale(2.5) !important; background: #2ecc71 !important; }
 
         #status-top { position: absolute; top: 20px; left: 20px; font-size: 20px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
         #status-bottom { position: absolute; bottom: 20px; left: 20px; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
         #ammo-display { position: absolute; bottom: 20px; right: 20px; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
         .reloading { color: #f1c40f; }
 
-        #damage-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: red; opacity: 0; transition: opacity 0.1s; }
+        #damage-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: red; opacity: 0; transition: opacity 0.1s; pointer-events: none;}
         #flash-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: white; opacity: 0; transition: opacity 0.05s; pointer-events: none;}
 
-        #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.5); padding: 2px 5px; border-radius: 3px; font-size: 14px; pointer-events: none; transform: translate(-50%, -100%); }
+        #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 3px; font-size: 14px; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; }
 
         .mobile-btn { position: absolute; background: rgba(255,255,255,0.2); border: 2px solid white; border-radius: 50%; width: 60px; height: 60px; display: none; align-items: center; justify-content: center; font-weight: bold; pointer-events: auto; }
         .mobile-btn:active { background: rgba(255,255,255,0.5); }
@@ -60,13 +64,12 @@
             <p>対戦相手のIDを入力</p>
             <input type="text" id="peer-id-input" placeholder="例: user-xxxxxx">
             <button id="btn-connect" onclick="connectToPeer()">接続する</button>
-            <div id="connection-status" class="success-text">通信を待機しています...</div>
+            <div id="connection-status" class="status-text text-wait">接続待機中...</div>
         </div>
         <div class="menu-section" id="start-section" style="opacity: 0.5; pointer-events: none;">
             <p>接続完了！デバイスを選んでスタート</p>
             <button id="btn-pc" onclick="startGame(false)">PC (キーボード&マウス)</button>
             <button id="btn-mobile" onclick="startGame(true)">スマホ (タッチ操作)</button>
-            <p style="font-size: 12px; margin-top: 10px;">PC: [R]キーでリロード</p>
         </div>
     </div>
 </div>
@@ -105,11 +108,23 @@ let peer = null, conn = null;
 let fixedPeerId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
 localStorage.setItem('game_3d_id', fixedPeerId);
 
+// PeerJS 初期化
 peer = new Peer(fixedPeerId);
-peer.on('open', id => document.getElementById('my-id').innerText = id);
+
+peer.on('open', id => {
+    document.getElementById('my-id').innerText = id;
+});
+
+peer.on('error', err => {
+    console.error("PeerJS Error:", err);
+    updateStatus("通信エラーが発生しました: " + err.type, "error");
+});
 
 peer.on('connection', connection => {
-    if(conn) return connection.close();
+    if(conn && conn.open) {
+        connection.close();
+        return;
+    }
     conn = connection;
     isHost = true;
     setupConnection();
@@ -120,33 +135,50 @@ function connectToPeer() {
     if(!targetId) return alert("相手のIDを入力してください！");
     if(targetId === fixedPeerId) return alert("自分のIDです！");
     
-    document.getElementById('btn-connect').innerText = "接続中...";
-    conn = peer.connect(targetId);
+    updateStatus("相手に接続要求を送信中...", "wait");
+    document.getElementById('btn-connect').disabled = true;
+
+    conn = peer.connect(targetId, { reliable: true });
     isHost = false;
     setupConnection();
 }
 
+function updateStatus(text, type) {
+    const statusEl = document.getElementById('connection-status');
+    statusEl.innerText = text;
+    statusEl.className = "status-text text-" + type;
+}
+
+// 通信ハンドシェイクとリスナーの設定
 function setupConnection() {
     conn.on('open', () => {
-        const statusEl = document.getElementById('connection-status');
-        statusEl.style.display = 'block';
-        statusEl.innerText = "★ 対戦相手と接続しました！ ★";
-        document.getElementById('btn-connect').innerText = "接続完了";
-        
-        const startSec = document.getElementById('start-section');
-        startSec.style.opacity = "1";
-        startSec.style.pointerEvents = "auto";
-        
+        updateStatus("通信確立！ハンドシェイク中...", "wait");
         myName = document.getElementById('player-name-input').value.trim() || "Player";
-        conn.send({ type: 'init', name: myName });
+        
+        // 相手に自分の情報を安全に送る
+        sendData({ type: 'init', name: myName, id: fixedPeerId });
     });
 
     conn.on('data', data => {
+        if (!data || !data.type) return;
+
+        // 初期接続ハンドシェイク（受信）
         if (data.type === 'init') {
             enemyName = data.name;
             document.getElementById('target-name').innerText = enemyName;
             document.getElementById('enemy-name-label').innerText = enemyName;
+            
+            // 返信ACKを返す
+            sendData({ type: 'init_ack', name: myName });
+            enableStartGame();
         }
+        else if (data.type === 'init_ack') {
+            enemyName = data.name;
+            document.getElementById('target-name').innerText = enemyName;
+            document.getElementById('enemy-name-label').innerText = enemyName;
+            enableStartGame();
+        }
+        // プレイヤー状態同期
         else if (data.type === 'state' && isPlaying) {
             enemyGroup.position.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
@@ -157,13 +189,16 @@ function setupConnection() {
                 enemyBody.scale.y = 1;
                 enemyHead.position.y = 1.9;
             }
+            // 座標更新後、衝突判定用Matrixを更新
+            enemyGroup.updateMatrixWorld(true);
         } 
+        // 被弾判定（受信）
         else if (data.type === 'hit' && isPlaying) {
             myHP -= data.damage;
             document.getElementById('hp').innerText = Math.max(0, myHP);
             
             const overlay = document.getElementById('damage-overlay');
-            overlay.style.opacity = 0.5;
+            overlay.style.opacity = 0.6;
             setTimeout(() => overlay.style.opacity = 0, 100);
 
             if (myHP <= 0) {
@@ -172,6 +207,35 @@ function setupConnection() {
             }
         }
     });
+
+    conn.on('close', () => {
+        alert("対戦相手との接続が切断されました。");
+        location.reload();
+    });
+
+    conn.on('error', err => {
+        console.error("Connection Error:", err);
+        updateStatus("接続エラーが発生しました", "error");
+        document.getElementById('btn-connect').disabled = false;
+    });
+}
+
+function enableStartGame() {
+    updateStatus("★ 対戦準備が完了しました！ ★", "success");
+    const startSec = document.getElementById('start-section');
+    startSec.style.opacity = "1";
+    startSec.style.pointerEvents = "auto";
+}
+
+// データの強固な送信ラッパー関数
+function sendData(data) {
+    if (conn && conn.open) {
+        try {
+            conn.send(data);
+        } catch(e) {
+            console.error("送信に失敗しました:", e);
+        }
+    }
 }
 
 function copyMyId() {
@@ -213,7 +277,7 @@ function startGame(mobileMode) {
             if(e.code==='KeyD') keys.d = true;
             if(e.code==='Space') jump();
             if(e.code==='ShiftLeft') crouch(true);
-            if(e.code==='KeyR' || e.key === 'r' || e.key === 'R') reload(); 
+            if(e.code==='KeyR' || e.key==='r' || e.key==='R') reload(); 
         });
         document.addEventListener('keyup', (e) => {
             if(e.code==='KeyW') keys.w = false;
@@ -257,6 +321,7 @@ function startGame(mobileMode) {
     }
 }
 
+// --- Three.js 描画設定 ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); 
 
@@ -287,6 +352,7 @@ const obstacle = new THREE.Mesh(boxGeom, boxMat);
 obstacle.position.set(0, 2, 0);
 scene.add(obstacle);
 
+// 敵プレイヤーモデル構築
 const enemyGroup = new THREE.Group();
 scene.add(enemyGroup);
 
@@ -302,7 +368,7 @@ const enemyHead = new THREE.Mesh(headGeom, headMat);
 enemyHead.position.y = 1.9;
 enemyGroup.add(enemyHead);
 
-enemyGroup.position.set(0, -100, 0);
+enemyGroup.position.set(0, -100, 0); // 初期位置は画面外
 
 const player = {
     velocity: new THREE.Vector3(),
@@ -363,6 +429,7 @@ function updateAmmoDisplay() {
 }
 
 const raycaster = new THREE.Raycaster();
+
 function shoot() {
     if(!isPlaying || isReloading) return;
     
@@ -384,18 +451,26 @@ function shoot() {
         crosshair.classList.remove('shooting');
     }, 50);
 
-    player.pitch += 0.02;
+    // リコイル（反動）
+    player.pitch += 0.015;
     camera.rotation.set(player.pitch, player.yaw, 0);
     
+    // 【当たり判定修正部】レイキャストを実行する前に敵モデルの行列を強制同期
+    enemyGroup.updateMatrixWorld(true);
+
     raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const intersects = raycaster.intersectObjects([enemyHead, enemyBody]);
+    const intersects = raycaster.intersectObjects([enemyHead, enemyBody], false);
     
     if (intersects.length > 0) {
         const hitObject = intersects[0].object;
-        let damage = hitObject === enemyHead ? 50 : 15;
-        if (conn && conn.open) {
-            conn.send({ type: 'hit', damage: damage });
-        }
+        let damage = (hitObject === enemyHead) ? 50 : 15;
+        
+        // 自分の画面に「ヒットマーカー（緑）」を表示
+        crosshair.classList.add('hit-marker');
+        setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
+
+        // 相手にダメージパケットを送信
+        sendData({ type: 'hit', damage: damage });
     }
 }
 
@@ -453,18 +528,16 @@ function animate() {
             player.isGrounded = true;
         }
 
-        if (conn && conn.open) {
-            const modelY = camera.position.y - currentGround; 
-            
-            conn.send({
-                type: 'state',
-                x: camera.position.x,
-                y: modelY, 
-                z: camera.position.z,
-                yaw: player.yaw,
-                crouch: player.isCrouching
-            });
-        }
+        // 自分の位置情報を通信相手にリアルタイム送信
+        const modelY = camera.position.y - currentGround; 
+        sendData({
+            type: 'state',
+            x: camera.position.x,
+            y: modelY, 
+            z: camera.position.z,
+            yaw: player.yaw,
+            crouch: player.isCrouching
+        });
         
         updateEnemyNameLabel();
     }
