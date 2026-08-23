@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>1vs1 3D FPS - 機能拡張版</title>
+    <title>1vs1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -30,6 +30,7 @@
 
         #status-top { position: absolute; top: 15px; left: 15px; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 0 #000; pointer-events: none; }
         #status-bottom { position: absolute; bottom: 15px; left: 15px; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
+        #weapon-display { position: absolute; bottom: 50px; right: 15px; font-size: 20px; font-weight: bold; color: #f39c12; text-shadow: 2px 2px 0 #000; pointer-events: none; }
         #ammo-display { position: absolute; bottom: 15px; right: 15px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
         .reloading { color: #f1c40f; }
 
@@ -50,6 +51,7 @@
         #btn-crouch { bottom: 30px; right: 140px; }
         #btn-scope { bottom: 140px; right: 140px; }
         #btn-reload { bottom: 230px; right: 30px; width: 50px; height: 50px; font-size: 14px; }
+        #btn-weapon { top: 15px; right: 15px; width: 80px; height: 45px; border-radius: 8px; background: rgba(243, 156, 18, 0.7); border-color: #f39c12; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -86,6 +88,7 @@
     <div id="crosshair"></div>
     <div id="status-top">Target: <span id="target-name">???</span></div>
     <div id="status-bottom">HP: <span id="hp">100</span></div>
+    <div id="weapon-display">ライフル (1)</div>
     <div id="ammo-display">30 / 30</div>
     <div id="enemy-name-label">Enemy HP: 100</div>
 
@@ -97,6 +100,7 @@
     <div class="mobile-btn" id="btn-crouch">屈</div>
     <div class="mobile-btn" id="btn-scope">覗</div>
     <div class="mobile-btn" id="btn-reload">R</div>
+    <div class="mobile-btn" id="btn-weapon">武器切替</div>
 </div>
 
 <script>
@@ -113,8 +117,14 @@ let isHost = false;
 // 自動回復用タイムスタンプ
 let lastDamageTime = performance.now();
 
-const MAX_AMMO = 30;
-let currentAmmo = MAX_AMMO;
+// 武器定義
+const WEAPONS = [
+    { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 50, pellets: 1, spread: 0, scopeFov: 30 },
+    { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 8, headDamage: 12, pellets: 8, spread: 0.08, scopeFov: 50 },
+    { name: "スナイパー", maxAmmo: 5, reloadTime: 2500, bodyDamage: 70, headDamage: 100, pellets: 1, spread: 0, scopeFov: 15 }
+];
+let currentWeaponIdx = 0;
+let ammoList = WEAPONS.map(w => w.maxAmmo);
 let isReloading = false;
 
 let peer = null, conn = null;
@@ -188,7 +198,7 @@ function setupConnection() {
         } 
         else if (data.type === 'hit' && isPlaying) {
             myHP -= data.damage;
-            lastDamageTime = performance.now(); // 被弾時刻更新
+            lastDamageTime = performance.now(); 
             document.getElementById('hp').innerText = Math.max(0, Math.floor(myHP));
             
             const overlay = document.getElementById('damage-overlay');
@@ -241,10 +251,9 @@ function startGame(mobileMode) {
     camera.rotation.set(player.pitch, player.yaw, 0);
 
     isPlaying = true;
-    updateAmmoDisplay();
+    updateWeaponDisplay();
 
     if (!isMobile) {
-        // クリックでポインターロック（フォーカス復帰対応）
         const requestLock = () => {
             if (isPlaying && !isMobile && document.pointerLockElement !== document.body) {
                 document.body.requestPointerLock();
@@ -273,6 +282,9 @@ function startGame(mobileMode) {
             if(e.code==='Space') jump();
             if(e.code==='ShiftLeft') crouch(true);
             if(e.code==='KeyR' || e.key==='r' || e.key==='R') reload(); 
+            if(e.code==='Digit1') switchWeapon(0);
+            if(e.code==='Digit2') switchWeapon(1);
+            if(e.code==='Digit3') switchWeapon(2);
         });
         document.addEventListener('keyup', (e) => {
             if(e.code==='KeyW') keys.w = false;
@@ -313,6 +325,7 @@ function setupPointerControls() {
     bindBtn('btn-crouch', () => crouch(!player.isCrouching));
     bindBtn('btn-scope', toggleScope);
     bindBtn('btn-reload', reload);
+    bindBtn('btn-weapon', cycleWeapon);
 
     const lookArea = document.getElementById('mobile-look-area');
     let lookPointerId = null;
@@ -335,8 +348,9 @@ function setupPointerControls() {
             
             player.yaw -= dx * 0.004;
             
+            // モバイル縦視点計算の修正 (PCと同じ符号に統一)
             const pitchDelta = dy * 0.004;
-            player.pitch += INVERT_Y ? -pitchDelta : pitchDelta;
+            player.pitch += INVERT_Y ? pitchDelta : -pitchDelta;
             player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
             
             camera.rotation.set(player.pitch, player.yaw, 0);
@@ -494,28 +508,47 @@ function crouch(isDown) {
 
 function toggleScope() {
     player.isScoping = !player.isScoping;
-    camera.fov = player.isScoping ? 30 : 75;
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+    camera.fov = player.isScoping ? currentWeapon.scopeFov : 75;
     camera.updateProjectionMatrix();
 }
 
-function reload() {
-    if (isReloading || currentAmmo === MAX_AMMO) return;
-    isReloading = true;
-    updateAmmoDisplay();
-    setTimeout(() => {
-        currentAmmo = MAX_AMMO;
-        isReloading = false;
-        updateAmmoDisplay();
-    }, 1500); 
+function switchWeapon(index) {
+    if (isReloading || index === currentWeaponIdx) return;
+    currentWeaponIdx = index;
+    if (player.isScoping) {
+        camera.fov = WEAPONS[currentWeaponIdx].scopeFov;
+        camera.updateProjectionMatrix();
+    }
+    updateWeaponDisplay();
 }
 
-function updateAmmoDisplay() {
+function cycleWeapon() {
+    switchWeapon((currentWeaponIdx + 1) % WEAPONS.length);
+}
+
+function reload() {
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+    if (isReloading || ammoList[currentWeaponIdx] === currentWeapon.maxAmmo) return;
+    isReloading = true;
+    updateWeaponDisplay();
+    setTimeout(() => {
+        ammoList[currentWeaponIdx] = currentWeapon.maxAmmo;
+        isReloading = false;
+        updateWeaponDisplay();
+    }, currentWeapon.reloadTime); 
+}
+
+function updateWeaponDisplay() {
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+    document.getElementById('weapon-display').innerText = `${currentWeapon.name} (${currentWeaponIdx + 1})`;
+    
     const ammoEl = document.getElementById('ammo-display');
     if (isReloading) {
         ammoEl.innerText = "Reloading...";
         ammoEl.classList.add('reloading');
     } else {
-        ammoEl.innerText = `${currentAmmo} / ${MAX_AMMO}`;
+        ammoEl.innerText = `${ammoList[currentWeaponIdx]} / ${currentWeapon.maxAmmo}`;
         ammoEl.classList.remove('reloading');
     }
 }
@@ -524,10 +557,12 @@ const raycaster = new THREE.Raycaster();
 
 function shoot() {
     if(!isPlaying || isReloading) return;
-    if (currentAmmo <= 0) return reload();
+    const currentWeapon = WEAPONS[currentWeaponIdx];
 
-    currentAmmo--;
-    updateAmmoDisplay();
+    if (ammoList[currentWeaponIdx] <= 0) return reload();
+
+    ammoList[currentWeaponIdx]--;
+    updateWeaponDisplay();
 
     const flash = document.getElementById('flash-overlay');
     flash.style.opacity = 0.3;
@@ -539,22 +574,35 @@ function shoot() {
         crosshair.classList.remove('shooting');
     }, 50);
 
-    player.pitch -= 0.015;
+    player.pitch -= (currentWeaponIdx === 1 ? 0.03 : 0.015);
     camera.rotation.set(player.pitch, player.yaw, 0);
     
     enemyGroup.updateMatrixWorld(true);
 
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const intersects = raycaster.intersectObjects([enemyHead, enemyBody], false);
-    
-    if (intersects.length > 0) {
-        const hitObject = intersects[0].object;
-        let damage = (hitObject === enemyHead) ? 50 : 15;
+    let totalDamage = 0;
+    let isHit = false;
+
+    for (let i = 0; i < currentWeapon.pellets; i++) {
+        let screenPos = new THREE.Vector2(0, 0);
+        if (currentWeapon.spread > 0) {
+            screenPos.x += (Math.random() - 0.5) * currentWeapon.spread;
+            screenPos.y += (Math.random() - 0.5) * currentWeapon.spread;
+        }
+
+        raycaster.setFromCamera(screenPos, camera);
+        const intersects = raycaster.intersectObjects([enemyHead, enemyBody], false);
         
+        if (intersects.length > 0) {
+            isHit = true;
+            const hitObject = intersects[0].object;
+            totalDamage += (hitObject === enemyHead) ? currentWeapon.headDamage : currentWeapon.bodyDamage;
+        }
+    }
+
+    if (isHit) {
         crosshair.classList.add('hit-marker');
         setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
-
-        sendData({ type: 'hit', damage: damage });
+        sendData({ type: 'hit', damage: totalDamage });
     }
 }
 
@@ -590,7 +638,6 @@ function animate() {
     prevTime = time;
 
     if (isPlaying) {
-        // 自動回復処理 (10秒非被弾で1秒間に10回復)
         if (myHP < 100 && myHP > 0) {
             if (time - lastDamageTime >= 10000) {
                 myHP = Math.min(100, myHP + 10 * delta);
