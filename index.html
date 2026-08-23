@@ -83,14 +83,13 @@
             </div>
         </div>
 
-        <!-- 2. みんなの共有練習場 -->
+        <!-- 2. みんなの練習場 (自動マッチング) -->
         <div class="menu-section">
-            <h3>2. みんなの練習場 (集まる・的当て・対戦)</h3>
-            <div style="font-size:12px; color:#ccc; margin-bottom:6px; text-align:center;">誰かが作った練習場に入るか、自分で部屋を作成します</div>
-            <input type="text" id="room-id-input" placeholder="入る練習場の部屋ID (作成者のID)">
+            <h3>2. みんなの練習場</h3>
+            <div style="font-size:12px; color:#ccc; margin-bottom:6px; text-align:center;">全員が同じ広場に集まります</div>
             <div class="flex-row">
-                <button class="btn btn-purple" style="flex:1" onclick="createSharedRoom()">部屋を作る (ホスト)</button>
-                <button class="btn btn-purple" style="flex:1" onclick="joinSharedRoom()">部屋に入る</button>
+                <button class="btn btn-purple" style="flex:1" onclick="joinGlobalLobby(false)">PCで入る</button>
+                <button class="btn btn-purple" style="flex:1" onclick="joinGlobalLobby(true)">スマホで入る</button>
             </div>
         </div>
 
@@ -145,9 +144,12 @@ let peer = null;
 let roomConnections = []; // ホストの場合：接続されているクライアント一覧
 let hostConnection = null; // クライアントの場合：ホストへの接続
 let direct1vs1Conn = null; // 1vs1用
-
-// 共有練習場内の全プレイヤー情報
 let remotePlayers = {}; // id -> { mesh, name, peerId, hp }
+
+// 自動マッチング用変数
+const GLOBAL_ROOM_ID = "public-lobby-1vs1-shared-room"; // 共通の固定ID
+let connectingToGlobal = false;
+let globalIsMobile = false;
 
 // LocalStorage 名前の保持
 const savedName = localStorage.getItem('fps_player_name') || "Player_" + Math.floor(Math.random()*1000);
@@ -160,19 +162,65 @@ nameInputEl.addEventListener('input', (e) => {
     localStorage.setItem('fps_player_name', myName);
 });
 
-// PeerJS 初期化
-myPeerId = localStorage.getItem('fps_peer_id') || ('user-' + Math.random().toString(36).substr(2, 6));
-localStorage.setItem('fps_peer_id', myPeerId);
+// PeerJS 初期化関数
+function initPeer() {
+    myPeerId = localStorage.getItem('fps_peer_id') || ('user-' + Math.random().toString(36).substr(2, 6));
+    localStorage.setItem('fps_peer_id', myPeerId);
 
-peer = new Peer(myPeerId);
-peer.on('open', id => { 
-    myPeerId = id;
-    document.getElementById('my-id').innerText = id; 
-});
+    peer = new Peer(myPeerId);
+    
+    peer.on('open', id => { 
+        myPeerId = id;
+        document.getElementById('my-id').innerText = id; 
+    });
 
-peer.on('connection', conn => {
-    setupIncomingConnection(conn);
-});
+    peer.on('connection', conn => {
+        // 自分が共有ロビーのホストの場合、接続リストに追加
+        if (gameMode === 'SHARED' && myPeerId === GLOBAL_ROOM_ID) {
+            roomConnections.push(conn);
+        }
+        setupIncomingConnection(conn);
+    });
+
+    peer.on('error', err => {
+        // ホストが存在しない状態で「みんなの練習場」に入ろうとした場合、自分がホストになる
+        if (err.type === 'peer-unavailable' && connectingToGlobal) {
+            connectingToGlobal = false;
+            updateStatus("最初の参加者です。ホストとして広場を作成中...", "#f1c40f");
+            
+            peer.destroy(); 
+            
+            setTimeout(() => {
+                peer = new Peer(GLOBAL_ROOM_ID); // 固定IDで再作成
+                
+                peer.on('open', id => {
+                    myPeerId = id;
+                    document.getElementById('my-id').innerText = id + " (ホスト)";
+                    gameMode = 'SHARED';
+                    document.getElementById('mode-display').innerText = `みんなの練習場 (HOST)`;
+                    createPracticeTargets();
+                    
+                    peer.on('connection', conn => {
+                        roomConnections.push(conn);
+                        setupIncomingConnection(conn);
+                    });
+                    
+                    initGameUI(globalIsMobile);
+                });
+                
+                peer.on('error', e => {
+                    alert("広場の作成に失敗しました: " + e);
+                    updateStatus("準備完了");
+                });
+            }, 500);
+        } else {
+            console.error("PeerJS Error:", err);
+        }
+    });
+}
+
+// 起動時にPeerJSを初期化
+initPeer();
 
 function updateStatus(text, color="#f1c40f") {
     const el = document.getElementById('connection-status');
@@ -203,7 +251,6 @@ function setupIncomingConnection(conn) {
 function handleNetworkData(conn, data) {
     if (!data || !data.type) return;
 
-    // 1vs1 挑戦リクエスト受信
     if (data.type === 'challenge_request') {
         if (confirm(`${data.fromName} (ID: ${data.fromId}) から1vs1の対戦申し込みが来ました！戦いますか？`)) {
             conn.send({ type: 'challenge_accept', fromId: myPeerId, fromName: myName });
@@ -219,16 +266,12 @@ function handleNetworkData(conn, data) {
     else if (data.type === 'challenge_reject') {
         alert("対戦の申し込みが拒否されました。");
     }
-    // 状態同期 (位置、ポーズなど)
     else if (data.type === 'player_state') {
         updateRemotePlayer(data);
-        
-        // ホストの場合、他の全クライアントに中継（マルチロビー用）
         if (gameMode === 'SHARED' && roomConnections.length > 0) {
             broadcastExcept(data, conn.peer);
         }
     }
-    // 被弾判定
     else if (data.type === 'hit') {
         if (data.targetId === myPeerId) {
             myHP -= data.damage;
@@ -274,39 +317,30 @@ function startPracticeMode(mobileMode) {
     initGameUI(mobileMode);
 }
 
-function createSharedRoom() {
-    gameMode = 'SHARED';
-    document.getElementById('mode-display').innerText = `共有練習場 (HOST: ${myPeerId})`;
-    createPracticeTargets();
+// 共有練習場に自動で入る（ホストへ接続 / いなければ自身がホスト化）
+function joinGlobalLobby(isMob) {
+    if (myPeerId === GLOBAL_ROOM_ID) {
+        // すでに自身がホストの場合
+        initGameUI(isMob);
+        return;
+    }
     
-    peer.on('connection', conn => {
-        roomConnections.push(conn);
-        setupIncomingConnection(conn);
-    });
-
-    const isMob = confirm("スマホで操作しますか？ OK:スマホ / キャンセル:PC");
-    initGameUI(isMob);
-}
-
-function joinSharedRoom() {
-    const roomId = document.getElementById('room-id-input').value.trim();
-    if (!roomId) return alert("入る部屋のIDを入力してください！");
-    if (roomId === myPeerId) return alert("自分のIDではなく、ホストのIDを入力してください。");
-
-    updateStatus("部屋に接続中...", "#f1c40f");
-    hostConnection = peer.connect(roomId, { reliable: true });
-
+    updateStatus("練習場に接続中...", "#f1c40f");
+    connectingToGlobal = true;
+    globalIsMobile = isMob;
+    
+    // 固定IDへ接続を試みる
+    hostConnection = peer.connect(GLOBAL_ROOM_ID, { reliable: true });
+    
     hostConnection.on('open', () => {
+        connectingToGlobal = false;
         gameMode = 'SHARED';
-        document.getElementById('mode-display').innerText = `共有練習場 (ROOM: ${roomId})`;
+        document.getElementById('mode-display').innerText = `みんなの練習場`;
         createPracticeTargets();
-        
-        const isMob = confirm("スマホで操作しますか？ OK:スマホ / キャンセル:PC");
         initGameUI(isMob);
     });
 
     hostConnection.on('data', data => handleNetworkData(hostConnection, data));
-    hostConnection.on('error', err => alert("接続エラー: " + err));
 }
 
 function connectDirect1vs1() {
@@ -345,7 +379,6 @@ function start1vs1Battle(conn, isInitiator) {
     gameMode = '1VS1';
     document.getElementById('mode-display').innerText = "1vs1 バトル";
     
-    // 既存のリモートプレイヤーをクリア
     Object.keys(remotePlayers).forEach(id => removePlayer(id));
 
     if (isInitiator) {
@@ -424,7 +457,6 @@ function updateRemotePlayer(data) {
 
     let p = remotePlayers[data.id];
     if (!p) {
-        // 新規プレイヤーの3Dメッシュ＆UI作成
         const group = new THREE.Group();
         const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, 1), new THREE.MeshLambertMaterial({ color: 0xe74c3c }));
         bMesh.position.y = 0.75;
@@ -436,7 +468,6 @@ function updateRemotePlayer(data) {
 
         scene.add(group);
 
-        // 頭上UI（名前・ID・戦うボタン）
         const uiContainer = document.createElement('div');
         uiContainer.className = 'nametag-container';
         uiContainer.innerHTML = `
@@ -523,7 +554,6 @@ light.position.set(5, 10, 5);
 scene.add(light);
 scene.add(new THREE.AmbientLight(0x555555));
 
-// 床
 const floorGeom = new THREE.PlaneGeometry(120, 120);
 const floorMat = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
 const floor = new THREE.Mesh(floorGeom, floorMat);
@@ -536,7 +566,6 @@ gridHelper.material.transparent = true;
 gridHelper.position.y = 0.01;
 scene.add(gridHelper);
 
-// 練習用ターゲット群
 const practiceTargets = [];
 function createPracticeTargets() {
     if (practiceTargets.length > 0) return;
@@ -578,7 +607,6 @@ function createPracticeTargets() {
     });
 }
 
-// 弾痕管理
 const bulletHoles = [];
 const MAX_BULLET_HOLES = 50;
 
@@ -601,7 +629,6 @@ function createBulletHole(point, normal) {
     }
 }
 
-// プレイヤー移動パラメーター
 const player = {
     velocity: new THREE.Vector3(),
     speed: 15,
@@ -675,7 +702,6 @@ function updateWeaponDisplay() {
     }
 }
 
-// 射撃・レイキャスト判定
 const raycaster = new THREE.Raycaster();
 
 function shoot() {
@@ -700,7 +726,6 @@ function shoot() {
     player.pitch -= (currentWeaponIdx === 1 ? 0.03 : 0.015);
     camera.rotation.set(player.pitch, player.yaw, 0);
 
-    // 衝突判定対象リストを作成
     const remoteMeshes = [];
     Object.values(remotePlayers).forEach(p => {
         remoteMeshes.push(p.body, p.head);
@@ -726,7 +751,6 @@ function shoot() {
                 createBulletHole(hit.point, hit.face.normal);
             }
 
-            // ターゲット（的）ヒット
             if (hitObj.userData && hitObj.userData.isTarget) {
                 crosshair.classList.add('hit-marker');
                 setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
@@ -739,7 +763,6 @@ function shoot() {
                 setTimeout(() => grp.position.z -= 0.1, 50);
             }
 
-            // 他プレイヤーヒット判定
             Object.values(remotePlayers).forEach(p => {
                 if (hitObj === p.body || hitObj === p.head) {
                     crosshair.classList.add('hit-marker');
@@ -764,7 +787,6 @@ function showTargetHitMessage(msg) {
     setTimeout(() => el.style.opacity = 0, 400);
 }
 
-// スマホタッチ操作
 function setupPointerControls() {
     const bindBtn = (id, action) => {
         const el = document.getElementById(id);
@@ -861,7 +883,6 @@ function animate() {
     prevTime = time;
 
     if (isPlaying) {
-        // 移動・物理演算
         player.velocity.y -= player.gravity * delta;
 
         let dirX = 0, dirZ = 0;
@@ -897,7 +918,6 @@ function animate() {
             player.isGrounded = true;
         }
 
-        // 位置情報の送信（ソロモード以外）
         if (gameMode !== 'SOLO') {
             const modelY = camera.position.y - currentGround;
             broadcastAll({
