@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>1vs1</title>
+    <title>1vs1 3D FPS - 機能拡張版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -35,7 +35,7 @@
 
         #damage-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: red; opacity: 0; transition: opacity 0.1s; pointer-events: none;}
         #flash-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: white; opacity: 0; transition: opacity 0.05s; pointer-events: none;}
-        #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 3px; font-size: 12px; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; }
+        #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.7); padding: 4px 8px; border-radius: 4px; font-size: 13px; font-weight: bold; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; border: 1px solid rgba(255,255,255,0.3); }
 
         /* スマホ用タッチエリア設定 */
         #mobile-look-area { position: absolute; top: 0; right: 0; width: 50%; height: 100%; pointer-events: auto; z-index: 105; display: none; }
@@ -87,7 +87,7 @@
     <div id="status-top">Target: <span id="target-name">???</span></div>
     <div id="status-bottom">HP: <span id="hp">100</span></div>
     <div id="ammo-display">30 / 30</div>
-    <div id="enemy-name-label">Enemy</div>
+    <div id="enemy-name-label">Enemy HP: 100</div>
 
     <div id="mobile-look-area"></div>
     <div id="joystick-container"><div id="joystick-stick"></div></div>
@@ -100,15 +100,18 @@
 </div>
 
 <script>
-// ★ 上下視点操作の反転設定 (false: 上スワイプで上を向く / true: 上スワイプで下を向く)
 const INVERT_Y = false;
 
 let isMobile = false;
 let isPlaying = false;
 let myHP = 100;
+let enemyHP = 100;
 let myName = "Player";
 let enemyName = "Enemy";
 let isHost = false;
+
+// 自動回復用タイムスタンプ
+let lastDamageTime = performance.now();
 
 const MAX_AMMO = 30;
 let currentAmmo = MAX_AMMO;
@@ -161,19 +164,19 @@ function setupConnection() {
         if (data.type === 'init') {
             enemyName = data.name;
             document.getElementById('target-name').innerText = enemyName;
-            document.getElementById('enemy-name-label').innerText = enemyName;
             sendData({ type: 'init_ack', name: myName });
             enableStartGame();
         }
         else if (data.type === 'init_ack') {
             enemyName = data.name;
             document.getElementById('target-name').innerText = enemyName;
-            document.getElementById('enemy-name-label').innerText = enemyName;
             enableStartGame();
         }
         else if (data.type === 'state' && isPlaying) {
             enemyGroup.position.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
+            if (data.hp !== undefined) enemyHP = data.hp;
+            
             if(data.crouch) {
                 enemyBody.scale.y = 0.5;
                 enemyHead.position.y = 1.0;
@@ -185,7 +188,8 @@ function setupConnection() {
         } 
         else if (data.type === 'hit' && isPlaying) {
             myHP -= data.damage;
-            document.getElementById('hp').innerText = Math.max(0, myHP);
+            lastDamageTime = performance.now(); // 被弾時刻更新
+            document.getElementById('hp').innerText = Math.max(0, Math.floor(myHP));
             
             const overlay = document.getElementById('damage-overlay');
             overlay.style.opacity = 0.6;
@@ -240,7 +244,16 @@ function startGame(mobileMode) {
     updateAmmoDisplay();
 
     if (!isMobile) {
-        document.body.requestPointerLock();
+        // クリックでポインターロック（フォーカス復帰対応）
+        const requestLock = () => {
+            if (isPlaying && !isMobile && document.pointerLockElement !== document.body) {
+                document.body.requestPointerLock();
+            }
+        };
+
+        requestLock();
+        document.addEventListener('click', requestLock);
+
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
                 player.yaw -= e.movementX * 0.002;
@@ -269,8 +282,10 @@ function startGame(mobileMode) {
             if(e.code==='ShiftLeft') crouch(false);
         });
         document.addEventListener('mousedown', (e) => {
-            if(e.button === 0) shoot();
-            if(e.button === 2) toggleScope();
+            if(document.pointerLockElement === document.body) {
+                if(e.button === 0) shoot();
+                if(e.button === 2) toggleScope();
+            }
         });
         document.addEventListener('contextmenu', e => e.preventDefault());
     } else {
@@ -299,7 +314,6 @@ function setupPointerControls() {
     bindBtn('btn-scope', toggleScope);
     bindBtn('btn-reload', reload);
 
-    // 視点移動エリア (画面右半分)
     const lookArea = document.getElementById('mobile-look-area');
     let lookPointerId = null;
     let lastLookX = 0, lastLookY = 0;
@@ -321,7 +335,6 @@ function setupPointerControls() {
             
             player.yaw -= dx * 0.004;
             
-            // ★ 修正: 上スワイプ(dy < 0)で pitch を減らし、上を向く処理に確実化
             const pitchDelta = dy * 0.004;
             player.pitch += INVERT_Y ? -pitchDelta : pitchDelta;
             player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
@@ -342,7 +355,6 @@ function setupPointerControls() {
     lookArea.addEventListener('pointerup', endLook);
     lookArea.addEventListener('pointercancel', endLook);
 
-    // ジョイスティック移動 (画面左下)
     const joyContainer = document.getElementById('joystick-container');
     const joyStick = document.getElementById('joystick-stick');
     let joyPointerId = null;
@@ -399,8 +411,6 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); 
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-
-// ★重要★ FPSの視点操作に必須のオイラー角回転順序を「YXZ」に指定（これでYaw回転時のPitch反転を防止）
 camera.rotation.order = 'YXZ';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -529,7 +539,6 @@ function shoot() {
         crosshair.classList.remove('shooting');
     }, 50);
 
-    // ★ 修正: 射撃反動で銃口が上に向くように修正
     player.pitch -= 0.015;
     camera.rotation.set(player.pitch, player.yaw, 0);
     
@@ -553,13 +562,14 @@ function updateEnemyNameLabel() {
     if (!isPlaying) return;
     
     const enemyPos = enemyGroup.position.clone();
-    enemyPos.y += 2.5;
+    enemyPos.y += 2.6;
     enemyPos.project(camera);
 
     const x = (enemyPos.x * .5 + .5) * window.innerWidth;
     const y = (enemyPos.y * -.5 + .5) * window.innerHeight;
 
     const label = document.getElementById('enemy-name-label');
+    label.innerText = `${enemyName} (HP: ${Math.floor(enemyHP)})`;
     
     if (enemyPos.z < 1 && x > 0 && x < window.innerWidth && y > 0 && y < window.innerHeight) {
         label.style.display = 'block';
@@ -580,6 +590,14 @@ function animate() {
     prevTime = time;
 
     if (isPlaying) {
+        // 自動回復処理 (10秒非被弾で1秒間に10回復)
+        if (myHP < 100 && myHP > 0) {
+            if (time - lastDamageTime >= 10000) {
+                myHP = Math.min(100, myHP + 10 * delta);
+                document.getElementById('hp').innerText = Math.floor(myHP);
+            }
+        }
+
         player.velocity.y -= player.gravity * delta;
 
         let dirX = 0, dirZ = 0;
@@ -617,7 +635,8 @@ function animate() {
             y: modelY, 
             z: camera.position.z,
             yaw: player.yaw,
-            crouch: player.isCrouching
+            crouch: player.isCrouching,
+            hp: Math.floor(myHP)
         });
         
         updateEnemyNameLabel();
