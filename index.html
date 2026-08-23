@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>1vs1 3D FPS - 名前保存対応版</title>
+    <title>1vs1 3D FPS - 練習場＆弾痕対応版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -16,6 +16,7 @@
         .menu-section { margin-bottom: 12px; padding: 10px; background: #333; border-radius: 8px; }
         input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; touch-action: auto; }
         button { padding: 12px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; }
+        button.btn-practice { background: #2ecc71; width: 90%; margin-top: 8px; }
         .status-text { font-weight: bold; margin-top: 8px; font-size: 14px; }
         .text-success { color: #2ecc71; }
         .text-error { color: #e74c3c; }
@@ -38,6 +39,8 @@
         #flash-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: white; opacity: 0; transition: opacity 0.05s; pointer-events: none;}
         #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.7); padding: 4px 8px; border-radius: 4px; font-size: 13px; font-weight: bold; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; border: 1px solid rgba(255,255,255,0.3); }
 
+        #target-hit-msg { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; font-weight: bold; color: #f39c12; text-shadow: 2px 2px 0 #000; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+
         /* スマホ用タッチエリア設定 */
         #mobile-look-area { position: absolute; top: 0; right: 0; width: 50%; height: 100%; pointer-events: auto; z-index: 105; display: none; }
         
@@ -58,11 +61,19 @@
 
 <div id="menu">
     <div class="menu-box">
-        <h2 style="margin-top:0;">3D FPS 対戦ロビー</h2>
+        <h2 style="margin-top:0;">3D FPS ロビー</h2>
         <div class="menu-section">
             <p style="margin:4px 0;">プレイヤー名</p>
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
         </div>
+        
+        <!-- 一人用練習場メニュー -->
+        <div class="menu-section" style="border: 1px solid #2ecc71;">
+            <p style="margin:4px 0; font-weight:bold; color:#2ecc71;">ソロ練習場 (的当て)</p>
+            <button class="btn-practice" onclick="startPracticeMode(false)">練習場へ入る (PC)</button>
+            <button class="btn-practice" onclick="startPracticeMode(true)">練習場へ入る (スマホ)</button>
+        </div>
+
         <div class="menu-section">
             <p style="margin:4px 0;">あなたのID</p>
             <h3 id="my-id" style="color: #f1c40f; margin:4px 0;">生成中...</h3>
@@ -75,7 +86,7 @@
             <div id="connection-status" class="status-text text-wait">接続待機中...</div>
         </div>
         <div class="menu-section" id="start-section" style="opacity: 0.5; pointer-events: none;">
-            <p style="margin:4px 0;">接続完了！操作方法を選択</p>
+            <p style="margin:4px 0;">接続完了！1vs1対戦を開始</p>
             <button id="btn-pc" onclick="startGame(false)">PC (キーボード&マウス)</button>
             <button id="btn-mobile" onclick="startGame(true)">スマホ (タッチ操作)</button>
         </div>
@@ -91,6 +102,7 @@
     <div id="weapon-display">ライフル (1)</div>
     <div id="ammo-display">30 / 30</div>
     <div id="enemy-name-label">Enemy HP: 100</div>
+    <div id="target-hit-msg">HIT!</div>
 
     <div id="mobile-look-area"></div>
     <div id="joystick-container"><div id="joystick-stick"></div></div>
@@ -108,6 +120,7 @@ const INVERT_Y = false;
 
 let isMobile = false;
 let isPlaying = false;
+let isPracticeMode = false;
 let myHP = 100;
 let enemyHP = 100;
 let myName = "Player";
@@ -125,7 +138,6 @@ nameInputEl.addEventListener('input', (e) => {
     localStorage.setItem('game_3d_name', val);
 });
 
-// 自動回復用タイムスタンプ
 let lastDamageTime = performance.now();
 
 // 武器定義
@@ -194,12 +206,11 @@ function setupConnection() {
             document.getElementById('target-name').innerText = enemyName;
             enableStartGame();
         }
-        else if (data.type === 'state' && isPlaying) {
+        else if (data.type === 'state' && isPlaying && !isPracticeMode) {
             enemyGroup.position.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
             if (data.hp !== undefined) {
                 enemyHP = data.hp;
-                // 勝利判定
                 if (enemyHP <= 0) {
                     isPlaying = false;
                     setTimeout(() => {
@@ -218,7 +229,7 @@ function setupConnection() {
             }
             enemyGroup.updateMatrixWorld(true);
         } 
-        else if (data.type === 'hit' && isPlaying) {
+        else if (data.type === 'hit' && isPlaying && !isPracticeMode) {
             myHP -= data.damage;
             lastDamageTime = performance.now(); 
             document.getElementById('hp').innerText = Math.max(0, Math.floor(myHP));
@@ -238,7 +249,7 @@ function setupConnection() {
     });
 
     conn.on('close', () => { 
-        if (isPlaying) {
+        if (isPlaying && !isPracticeMode) {
             alert("対戦相手との接続が切断されました。"); 
             location.reload(); 
         }
@@ -265,6 +276,14 @@ function copyMyId() {
 
 let moveInput = { x: 0, z: 0 };
 
+// 練習場を開始する関数
+function startPracticeMode(mobileMode) {
+    isPracticeMode = true;
+    document.getElementById('target-name').innerText = "練習用ターゲット";
+    createPracticeTargets();
+    startGame(mobileMode);
+}
+
 function startGame(mobileMode) {
     myName = nameInputEl.value.trim() || "Player";
     localStorage.setItem('game_3d_name', myName);
@@ -273,7 +292,7 @@ function startGame(mobileMode) {
     document.getElementById('menu').style.display = 'none';
     document.getElementById('ui-layer').style.display = 'block';
     
-    if (isHost) {
+    if (isHost && !isPracticeMode) {
         camera.position.set(0, player.height, 10);
         player.yaw = Math.PI;
     } else {
@@ -479,17 +498,12 @@ const floorMat = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
 const floor = new THREE.Mesh(floorGeom, floorMat);
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
+
 const gridHelper = new THREE.GridHelper(100, 50, 0x000000, 0x000000);
 gridHelper.material.opacity = 0.2;
 gridHelper.material.transparent = true;
 gridHelper.position.y = 0.01;
 scene.add(gridHelper);
-
-const boxGeom = new THREE.BoxGeometry(4, 4, 4);
-const boxMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
-const obstacle = new THREE.Mesh(boxGeom, boxMat);
-obstacle.position.set(0, 2, 0);
-scene.add(obstacle);
 
 // 敵モデル
 const enemyGroup = new THREE.Group();
@@ -509,10 +523,80 @@ enemyGroup.add(enemyHead);
 
 enemyGroup.position.set(0, -100, 0);
 
+// 練習用ターゲットの作成
+const practiceTargets = [];
+function createPracticeTargets() {
+    const targetPositions = [
+        { x: -5, y: 2, z: 0 },
+        { x: 0, y: 2.5, z: 5 },
+        { x: 5, y: 1.8, z: -2 }
+    ];
+
+    targetPositions.forEach((pos, idx) => {
+        const group = new THREE.Group();
+        
+        // 標的の円盤
+        const outerGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.1, 32);
+        const outerMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+        const outer = new THREE.Mesh(outerGeo, outerMat);
+        outer.rotation.x = Math.PI / 2;
+        group.add(outer);
+
+        const innerGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.12, 32);
+        const innerMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
+        const inner = new THREE.Mesh(innerGeo, innerMat);
+        inner.rotation.x = Math.PI / 2;
+        group.add(inner);
+
+        // 支柱
+        const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, pos.y, 16);
+        const poleMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+        const pole = new THREE.Mesh(poleGeo, poleMat);
+        pole.position.y = -pos.y / 2;
+        pole.rotation.x = 0;
+        group.add(pole);
+
+        group.position.set(pos.x, pos.y, pos.z);
+        scene.add(group);
+        
+        outer.userData = { isTarget: true, inner: false, parentGroup: group };
+        inner.userData = { isTarget: true, inner: true, parentGroup: group };
+        practiceTargets.push(outer, inner);
+    });
+}
+
+// 弾痕（Bullet Hole）管理
+const bulletHoles = [];
+const MAX_BULLET_HOLES = 50;
+
+function createBulletHole(point, normal) {
+    const holeGeo = new THREE.CircleGeometry(0.08, 12);
+    const holeMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
+    const hole = new THREE.Mesh(holeGeo, holeMat);
+
+    // 面からわずかに浮かせてチラつき防止
+    hole.position.copy(point).add(normal.clone().multiplyScalar(0.01));
+    
+    // 法線方向を向くよう調整
+    const lookAtPoint = point.clone().add(normal);
+    hole.lookAt(lookAtPoint);
+
+    scene.add(hole);
+    bulletHoles.push(hole);
+
+    if (bulletHoles.length > MAX_BULLET_HOLES) {
+        const oldHole = bulletHoles.shift();
+        scene.remove(oldHole);
+        oldHole.geometry.dispose();
+        oldHole.material.dispose();
+    }
+}
+
 const player = {
     velocity: new THREE.Vector3(),
     speed: 15,
     jumpForce: 12,
+    forwardBoost: 0,
     gravity: 30,
     isGrounded: false,
     isCrouching: false,
@@ -529,6 +613,7 @@ function jump() {
     if (player.isGrounded && !player.isCrouching) {
         player.velocity.y = player.jumpForce;
         player.isGrounded = false;
+        player.forwardBoost = 12;
     }
 }
 
@@ -611,7 +696,10 @@ function shoot() {
     enemyGroup.updateMatrixWorld(true);
 
     let totalDamage = 0;
-    let isHit = false;
+    let isEnemyHit = false;
+
+    // Raycastに対象となるオブジェクトをまとめる
+    const targetsToRay = [floor, enemyHead, enemyBody, ...practiceTargets];
 
     for (let i = 0; i < currentWeapon.pellets; i++) {
         let screenPos = new THREE.Vector2(0, 0);
@@ -621,24 +709,55 @@ function shoot() {
         }
 
         raycaster.setFromCamera(screenPos, camera);
-        const intersects = raycaster.intersectObjects([enemyHead, enemyBody], false);
+        const intersects = raycaster.intersectObjects(targetsToRay, false);
         
         if (intersects.length > 0) {
-            isHit = true;
-            const hitObject = intersects[0].object;
-            totalDamage += (hitObject === enemyHead) ? currentWeapon.headDamage : currentWeapon.bodyDamage;
+            const hit = intersects[0];
+            const hitObject = hit.object;
+
+            // 着地点に黒い弾痕を生成
+            if (hit.point && hit.face) {
+                createBulletHole(hit.point, hit.face.normal);
+            }
+
+            // 敵対戦プレイヤーへの判定
+            if (!isPracticeMode && (hitObject === enemyHead || hitObject === enemyBody)) {
+                isEnemyHit = true;
+                totalDamage += (hitObject === enemyHead) ? currentWeapon.headDamage : currentWeapon.bodyDamage;
+            }
+            
+            // 練習場ターゲットへの判定
+            if (hitObject.userData && hitObject.userData.isTarget) {
+                crosshair.classList.add('hit-marker');
+                setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
+
+                const damage = hitObject.userData.inner ? currentWeapon.headDamage : currentWeapon.bodyDamage;
+                showTargetHitMessage(hitObject.userData.inner ? `BULLSEYE! -${damage}` : `HIT! -${damage}`);
+
+                // ターゲットをヒット時に少しアニメーション
+                const group = hitObject.userData.parentGroup;
+                group.position.z += 0.1;
+                setTimeout(() => group.position.z -= 0.1, 50);
+            }
         }
     }
 
-    if (isHit) {
+    if (isEnemyHit && !isPracticeMode) {
         crosshair.classList.add('hit-marker');
         setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
         sendData({ type: 'hit', damage: totalDamage });
     }
 }
 
+function showTargetHitMessage(msg) {
+    const el = document.getElementById('target-hit-msg');
+    el.innerText = msg;
+    el.style.opacity = 1;
+    setTimeout(() => el.style.opacity = 0, 400);
+}
+
 function updateEnemyNameLabel() {
-    if (!isPlaying) return;
+    if (!isPlaying || isPracticeMode) return;
     
     const enemyPos = enemyGroup.position.clone();
     enemyPos.y += 2.6;
@@ -669,7 +788,7 @@ function animate() {
     prevTime = time;
 
     if (isPlaying) {
-        if (myHP < 100 && myHP > 0) {
+        if (!isPracticeMode && myHP < 100 && myHP > 0) {
             if (time - lastDamageTime >= 10000) {
                 myHP = Math.min(100, myHP + 10 * delta);
                 document.getElementById('hp').innerText = Math.floor(myHP);
@@ -697,6 +816,17 @@ function animate() {
             camera.position.z -= (Math.cos(angle) * dirZ - Math.sin(angle) * dirX) * moveSpeed * delta;
         }
 
+        // ジャンプ時の前進慣性処理
+        if (player.forwardBoost > 0) {
+            const fwdX = -Math.sin(player.yaw);
+            const fwdZ = -Math.cos(player.yaw);
+            camera.position.x += fwdX * player.forwardBoost * delta;
+            camera.position.z += fwdZ * player.forwardBoost * delta;
+            
+            player.forwardBoost -= 40 * delta;
+            if (player.forwardBoost < 0) player.forwardBoost = 0;
+        }
+
         camera.position.y += player.velocity.y * delta;
         
         const currentGround = player.isCrouching ? player.crouchHeight : player.height;
@@ -706,18 +836,20 @@ function animate() {
             player.isGrounded = true;
         }
 
-        const modelY = camera.position.y - currentGround; 
-        sendData({
-            type: 'state',
-            x: camera.position.x,
-            y: modelY, 
-            z: camera.position.z,
-            yaw: player.yaw,
-            crouch: player.isCrouching,
-            hp: Math.floor(myHP)
-        });
-        
-        updateEnemyNameLabel();
+        if (!isPracticeMode) {
+            const modelY = camera.position.y - currentGround; 
+            sendData({
+                type: 'state',
+                x: camera.position.x,
+                y: modelY, 
+                z: camera.position.z,
+                yaw: player.yaw,
+                crouch: player.isCrouching,
+                hp: Math.floor(myHP)
+            });
+            
+            updateEnemyNameLabel();
+        }
     }
 
     renderer.render(scene, camera);
