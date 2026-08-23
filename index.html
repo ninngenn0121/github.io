@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>1vs1 3D FPS - 練習場＆弾痕対応版</title>
+    <title>1vs1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -143,7 +143,7 @@ let lastDamageTime = performance.now();
 // 武器定義
 const WEAPONS = [
     { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 50, pellets: 1, spread: 0, scopeFov: 30 },
-    { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 8, headDamage: 12, pellets: 8, spread: 0.08, scopeFov: 50 },
+    { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 3, headDamage: 15, pellets: 8, spread: 0.08, scopeFov: 50 },
     { name: "スナイパー", maxAmmo: 5, reloadTime: 2500, bodyDamage: 70, headDamage: 100, pellets: 1, spread: 0, scopeFov: 15 }
 ];
 let currentWeaponIdx = 0;
