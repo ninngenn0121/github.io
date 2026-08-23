@@ -726,11 +726,15 @@ function shoot() {
     player.pitch -= (currentWeaponIdx === 1 ? 0.03 : 0.015);
     camera.rotation.set(player.pitch, player.yaw, 0);
 
+    // ★修正ポイント：1vs1モードの時のみ、他プレイヤーを当たり判定リスト（壁）として追加する
     const remoteMeshes = [];
-    Object.values(remotePlayers).forEach(p => {
-        remoteMeshes.push(p.body, p.head);
-    });
+    if (gameMode === '1VS1') {
+        Object.values(remotePlayers).forEach(p => {
+            remoteMeshes.push(p.body, p.head);
+        });
+    }
 
+    // 床・的・（1vs1なら他プレイヤー）の順で当たり判定をセット
     const targetsToRay = [floor, ...practiceTargets, ...remoteMeshes];
 
     for (let i = 0; i < w.pellets; i++) {
@@ -751,6 +755,7 @@ function shoot() {
                 createBulletHole(hit.point, hit.face.normal);
             }
 
+            // 的にヒットした時の処理
             if (hitObj.userData && hitObj.userData.isTarget) {
                 crosshair.classList.add('hit-marker');
                 setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
@@ -763,19 +768,22 @@ function shoot() {
                 setTimeout(() => grp.position.z -= 0.1, 50);
             }
 
-            Object.values(remotePlayers).forEach(p => {
-                if (hitObj === p.body || hitObj === p.head) {
-                    crosshair.classList.add('hit-marker');
-                    setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
-                    const damage = (hitObj === p.head) ? w.headDamage : w.bodyDamage;
-                    
-                    broadcastAll({
-                        type: 'hit',
-                        targetId: p.peerId,
-                        damage: damage
-                    });
-                }
-            });
+            // ★修正ポイント：1vs1モードの時のみ、ダメージ判定とヒットマーカーを表示する
+            if (gameMode === '1VS1') {
+                Object.values(remotePlayers).forEach(p => {
+                    if (hitObj === p.body || hitObj === p.head) {
+                        crosshair.classList.add('hit-marker');
+                        setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
+                        const damage = (hitObj === p.head) ? w.headDamage : w.bodyDamage;
+                        
+                        broadcastAll({
+                            type: 'hit',
+                            targetId: p.peerId,
+                            damage: damage
+                        });
+                    }
+                });
+            }
         }
     }
 }
