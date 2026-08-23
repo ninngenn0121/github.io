@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>1vs1</title>
+    <title>1vs1 3D FPS - 名前保存対応版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -114,6 +114,17 @@ let myName = "Player";
 let enemyName = "Enemy";
 let isHost = false;
 
+// 名前のローカルストレージ初期化
+const savedName = localStorage.getItem('game_3d_name') || "Player";
+const nameInputEl = document.getElementById('player-name-input');
+nameInputEl.value = savedName;
+myName = savedName;
+
+nameInputEl.addEventListener('input', (e) => {
+    const val = e.target.value.trim() || "Player";
+    localStorage.setItem('game_3d_name', val);
+});
+
 // 自動回復用タイムスタンプ
 let lastDamageTime = performance.now();
 
@@ -164,7 +175,8 @@ function updateStatus(text, type) {
 function setupConnection() {
     conn.on('open', () => {
         updateStatus("通信確立！ハンドシェイク中...", "wait");
-        myName = document.getElementById('player-name-input').value.trim() || "Player";
+        myName = nameInputEl.value.trim() || "Player";
+        localStorage.setItem('game_3d_name', myName);
         sendData({ type: 'init', name: myName, id: fixedPeerId });
     });
 
@@ -185,7 +197,17 @@ function setupConnection() {
         else if (data.type === 'state' && isPlaying) {
             enemyGroup.position.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
-            if (data.hp !== undefined) enemyHP = data.hp;
+            if (data.hp !== undefined) {
+                enemyHP = data.hp;
+                // 勝利判定
+                if (enemyHP <= 0) {
+                    isPlaying = false;
+                    setTimeout(() => {
+                        alert(`YOU WIN! ${enemyName} を倒しました！`);
+                        location.reload();
+                    }, 100);
+                }
+            }
             
             if(data.crouch) {
                 enemyBody.scale.y = 0.5;
@@ -206,13 +228,21 @@ function setupConnection() {
             setTimeout(() => overlay.style.opacity = 0, 100);
 
             if (myHP <= 0) {
-                alert(`YOU LOSE... ${enemyName} に倒されました`);
-                location.reload();
+                isPlaying = false;
+                setTimeout(() => {
+                    alert(`YOU LOSE... ${enemyName} に倒されました`);
+                    location.reload();
+                }, 100);
             }
         }
     });
 
-    conn.on('close', () => { alert("対戦相手との接続が切断されました。"); location.reload(); });
+    conn.on('close', () => { 
+        if (isPlaying) {
+            alert("対戦相手との接続が切断されました。"); 
+            location.reload(); 
+        }
+    });
     conn.on('error', () => { updateStatus("接続エラーが発生しました", "error"); document.getElementById('btn-connect').disabled = false; });
 }
 
@@ -236,7 +266,9 @@ function copyMyId() {
 let moveInput = { x: 0, z: 0 };
 
 function startGame(mobileMode) {
-    myName = document.getElementById('player-name-input').value.trim() || "Player";
+    myName = nameInputEl.value.trim() || "Player";
+    localStorage.setItem('game_3d_name', myName);
+    
     isMobile = mobileMode;
     document.getElementById('menu').style.display = 'none';
     document.getElementById('ui-layer').style.display = 'block';
@@ -348,7 +380,6 @@ function setupPointerControls() {
             
             player.yaw -= dx * 0.004;
             
-            // モバイル縦視点計算の修正 (PCと同じ符号に統一)
             const pitchDelta = dy * 0.004;
             player.pitch += INVERT_Y ? pitchDelta : -pitchDelta;
             player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
