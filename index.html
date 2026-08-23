@@ -789,7 +789,7 @@ function animate() {
 
     if (isPlaying) {
         if (!isPracticeMode && myHP < 100 && myHP > 0) {
-            if (time - lastDamageTime >= 10000) {
+            if (time - lastDamageTime >= 6000) {
                 myHP = Math.min(100, myHP + 10 * delta);
                 document.getElementById('hp').innerText = Math.floor(myHP);
             }
