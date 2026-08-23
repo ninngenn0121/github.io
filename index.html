@@ -3,104 +3,93 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>1vs1</title>
+    <title>1vs1 3D FPS - 練習場＆弾痕対応版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         * { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
         
-        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; overflow-y: auto; padding: 20px; }
-        .menu-box { background: #222; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #555; max-width: 480px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-        .menu-section { margin-bottom: 12px; padding: 12px; background: #333; border-radius: 8px; text-align: left; }
-        .menu-section h3 { margin: 0 0 8px 0; font-size: 16px; color: #f1c40f; text-align: center; }
-        input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #666; width: 100%; text-align: center; font-size: 15px; background: #111; color: #fff; touch-action: auto; }
-        
-        .btn { padding: 10px 16px; margin: 4px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; font-size: 14px; color: white; background: #3498db; transition: 0.2s; }
-        .btn:hover { opacity: 0.9; }
-        .btn-green { background: #2ecc71; }
-        .btn-purple { background: #9b59b6; }
-        .btn-orange { background: #e67e22; }
-        .btn-full { width: 100%; display: block; margin: 6px 0; font-size: 15px; padding: 12px; }
+        /* ロビーメニュー */
+        #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; overflow-y: auto; padding: 20px; }
+        .menu-box { background: #222; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 100%; }
+        .menu-section { margin-bottom: 12px; padding: 10px; background: #333; border-radius: 8px; }
+        input[type="text"] { padding: 10px; margin: 5px 0; border-radius: 4px; border: none; width: 80%; text-align: center; font-size: 16px; touch-action: auto; }
+        button { padding: 12px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #3498db; color: white; font-weight: bold; font-size: 16px; }
+        button.btn-practice { background: #2ecc71; width: 90%; margin-top: 8px; }
+        .status-text { font-weight: bold; margin-top: 8px; font-size: 14px; }
+        .text-success { color: #2ecc71; }
+        .text-error { color: #e74c3c; }
+        .text-wait { color: #f1c40f; }
 
-        .flex-row { display: flex; gap: 8px; justify-content: center; }
-
+        /* ゲーム操作UIレイヤー */
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; z-index: 100; }
+        
         #crosshair { position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; background: red; border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.05s, background 0.1s; pointer-events: none; }
         .shooting { transform: translate(-50%, -50%) scale(2) !important; background: yellow !important;} 
         .hit-marker { transform: translate(-50%, -50%) scale(2.5) !important; background: #2ecc71 !important; }
 
-        #status-top { position: absolute; top: 15px; left: 15px; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 2px #000; }
-        #status-bottom { position: absolute; bottom: 15px; left: 15px; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 2px #000; }
-        #weapon-display { position: absolute; bottom: 45px; right: 15px; font-size: 18px; font-weight: bold; color: #f39c12; text-shadow: 2px 2px 2px #000; }
-        #ammo-display { position: absolute; bottom: 15px; right: 15px; font-size: 26px; font-weight: bold; text-shadow: 2px 2px 2px #000; }
+        #status-top { position: absolute; top: 15px; left: 15px; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 0 #000; pointer-events: none; }
+        #status-bottom { position: absolute; bottom: 15px; left: 15px; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
+        #weapon-display { position: absolute; bottom: 50px; right: 15px; font-size: 20px; font-weight: bold; color: #f39c12; text-shadow: 2px 2px 0 #000; pointer-events: none; }
+        #ammo-display { position: absolute; bottom: 15px; right: 15px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
         .reloading { color: #f1c40f; }
 
         #damage-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: red; opacity: 0; transition: opacity 0.1s; pointer-events: none;}
         #flash-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: white; opacity: 0; transition: opacity 0.05s; pointer-events: none;}
+        #enemy-name-label { position: absolute; display: none; background: rgba(0,0,0,0.7); padding: 4px 8px; border-radius: 4px; font-size: 13px; font-weight: bold; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; border: 1px solid rgba(255,255,255,0.3); }
+
         #target-hit-msg { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; font-weight: bold; color: #f39c12; text-shadow: 2px 2px 0 #000; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
 
-        /* 頭上ネームタグ＆対戦ボタンコンテナ */
-        .nametag-container { position: absolute; pointer-events: auto; display: none; transform: translate(-50%, -100%); text-align: center; z-index: 200; }
-        .nametag-box { background: rgba(0,0,0,0.75); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.4); font-size: 12px; font-weight: bold; white-space: nowrap; color: #fff; }
-        .nametag-id { font-size: 10px; color: #f1c40f; margin-top: 2px; }
-        .btn-challenge { margin-top: 4px; padding: 4px 8px; font-size: 11px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        .btn-challenge:hover { background: #c0392b; }
-
-        /* スマホ用タッチ操作レイアウト */
+        /* スマホ用タッチエリア設定 */
         #mobile-look-area { position: absolute; top: 0; right: 0; width: 50%; height: 100%; pointer-events: auto; z-index: 105; display: none; }
+        
         #joystick-container { position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px; background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.5); border-radius: 50%; display: none; pointer-events: auto; z-index: 110; }
         #joystick-stick { position: absolute; top: 35px; left: 35px; width: 50px; height: 50px; background: rgba(255,255,255,0.8); border-radius: 50%; pointer-events: none; }
 
-        .mobile-btn { position: absolute; background: rgba(255,255,255,0.3); border: 2px solid rgba(255,255,255,0.9); border-radius: 50%; width: 60px; height: 60px; display: none; align-items: center; justify-content: center; font-weight: bold; pointer-events: auto; font-size: 15px; color: white; z-index: 120; }
+        .mobile-btn { position: absolute; background: rgba(255,255,255,0.3); border: 2px solid rgba(255,255,255,0.9); border-radius: 50%; width: 65px; height: 65px; display: none; align-items: center; justify-content: center; font-weight: bold; pointer-events: auto; font-size: 16px; color: white; z-index: 120; }
         .mobile-btn:active { background: rgba(255,255,255,0.7); }
-        #btn-shoot { bottom: 30px; right: 30px; width: 85px; height: 85px; background: rgba(231, 76, 60, 0.7); border-color: #e74c3c; font-size: 20px; }
-        #btn-jump { bottom: 130px; right: 30px; }
-        #btn-crouch { bottom: 30px; right: 130px; }
-        #btn-scope { bottom: 130px; right: 130px; }
-        #btn-reload { bottom: 210px; right: 30px; width: 50px; height: 50px; font-size: 13px; }
-        #btn-weapon { top: 15px; right: 15px; width: 80px; height: 40px; border-radius: 8px; background: rgba(243, 156, 18, 0.7); border-color: #f39c12; font-size: 13px; }
+        #btn-shoot { bottom: 30px; right: 30px; width: 90px; height: 90px; background: rgba(231, 76, 60, 0.7); border-color: #e74c3c; font-size: 22px; }
+        #btn-jump { bottom: 140px; right: 30px; }
+        #btn-crouch { bottom: 30px; right: 140px; }
+        #btn-scope { bottom: 140px; right: 140px; }
+        #btn-reload { bottom: 230px; right: 30px; width: 50px; height: 50px; font-size: 14px; }
+        #btn-weapon { top: 15px; right: 15px; width: 80px; height: 45px; border-radius: 8px; background: rgba(243, 156, 18, 0.7); border-color: #f39c12; font-size: 14px; }
     </style>
 </head>
 <body>
 
 <div id="menu">
     <div class="menu-box">
-        <h2 style="margin:0 0 10px 0; color:#3498db;">3D FPS マルチロビー</h2>
-        
+        <h2 style="margin-top:0;">3D FPS ロビー</h2>
         <div class="menu-section">
-            <h3>プレイヤー設定</h3>
+            <p style="margin:4px 0;">プレイヤー名</p>
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
-            <div style="font-size:12px; color:#aaa; margin-top:4px; text-align:center;">あなたのID: <span id="my-id" style="color:#f1c40f; font-weight:bold;">生成中...</span></div>
+        </div>
+        
+        <!-- 一人用練習場メニュー -->
+        <div class="menu-section" style="border: 1px solid #2ecc71;">
+            <p style="margin:4px 0; font-weight:bold; color:#2ecc71;">ソロ練習場 (的当て)</p>
+            <button class="btn-practice" onclick="startPracticeMode(false)">練習場へ入る (PC)</button>
+            <button class="btn-practice" onclick="startPracticeMode(true)">練習場へ入る (スマホ)</button>
         </div>
 
-        <!-- 1. ソロ練習場 -->
         <div class="menu-section">
-            <h3>1. 一人用練習場</h3>
-            <div class="flex-row">
-                <button class="btn btn-green" style="flex:1" onclick="startPracticeMode(false)">PCで練習</button>
-                <button class="btn btn-green" style="flex:1" onclick="startPracticeMode(true)">スマホで練習</button>
-            </div>
+            <p style="margin:4px 0;">あなたのID</p>
+            <h3 id="my-id" style="color: #f1c40f; margin:4px 0;">生成中...</h3>
+            <button onclick="copyMyId()">IDをコピー</button>
         </div>
-
-        <!-- 2. みんなの練習場 (自動マッチング) -->
         <div class="menu-section">
-            <h3>2. みんなの練習場</h3>
-            <div style="font-size:12px; color:#ccc; margin-bottom:6px; text-align:center;">全員が同じ広場に集まります</div>
-            <div class="flex-row">
-                <button class="btn btn-purple" style="flex:1" onclick="joinGlobalLobby(false)">PCで入る</button>
-                <button class="btn btn-purple" style="flex:1" onclick="joinGlobalLobby(true)">スマホで入る</button>
-            </div>
+            <p style="margin:4px 0;">対戦相手のIDを入力</p>
+            <input type="text" id="peer-id-input" placeholder="例: user-xxxxxx">
+            <button id="btn-connect" onclick="connectToPeer()">接続する</button>
+            <div id="connection-status" class="status-text text-wait">接続待機中...</div>
         </div>
-
-        <!-- 3. 直接1vs1対戦 -->
-        <div class="menu-section">
-            <h3>3. 直接 1vs1 バトル</h3>
-            <input type="text" id="peer-id-input" placeholder="対戦相手のID">
-            <button class="btn btn-orange btn-full" id="btn-direct-1vs1" onclick="connectDirect1vs1()">直接対戦を申し込む</button>
+        <div class="menu-section" id="start-section" style="opacity: 0.5; pointer-events: none;">
+            <p style="margin:4px 0;">接続完了！1vs1対戦を開始</p>
+            <button id="btn-pc" onclick="startGame(false)">PC (キーボード&マウス)</button>
+            <button id="btn-mobile" onclick="startGame(true)">スマホ (タッチ操作)</button>
         </div>
-
-        <div id="connection-status" style="font-size:13px; font-weight:bold; color:#f1c40f; margin-top:10px;">準備完了</div>
     </div>
 </div>
 
@@ -108,14 +97,12 @@
     <div id="flash-overlay"></div>
     <div id="damage-overlay"></div>
     <div id="crosshair"></div>
-    <div id="status-top">MODE: <span id="mode-display">練習場</span></div>
+    <div id="status-top">Target: <span id="target-name">???</span></div>
     <div id="status-bottom">HP: <span id="hp">100</span></div>
     <div id="weapon-display">ライフル (1)</div>
     <div id="ammo-display">30 / 30</div>
+    <div id="enemy-name-label">Enemy HP: 100</div>
     <div id="target-hit-msg">HIT!</div>
-
-    <!-- 他プレイヤーの頭上表示用UIコンテナ領域 -->
-    <div id="nametags-container-layer"></div>
 
     <div id="mobile-look-area"></div>
     <div id="joystick-container"><div id="joystick-stick"></div></div>
@@ -125,110 +112,35 @@
     <div class="mobile-btn" id="btn-crouch">屈</div>
     <div class="mobile-btn" id="btn-scope">覗</div>
     <div class="mobile-btn" id="btn-reload">R</div>
-    <div class="mobile-btn" id="btn-weapon">武器</div>
+    <div class="mobile-btn" id="btn-weapon">武器切替</div>
 </div>
 
 <script>
 const INVERT_Y = false;
 
-// ゲーム状態管理
 let isMobile = false;
 let isPlaying = false;
-let gameMode = 'SOLO'; // 'SOLO', 'SHARED', '1VS1'
+let isPracticeMode = false;
 let myHP = 100;
+let enemyHP = 100;
 let myName = "Player";
-let myPeerId = "";
+let enemyName = "Enemy";
+let isHost = false;
 
-// P2P ネットワーク管理
-let peer = null;
-let roomConnections = []; // ホストの場合：接続されているクライアント一覧
-let hostConnection = null; // クライアントの場合：ホストへの接続
-let direct1vs1Conn = null; // 1vs1用
-let remotePlayers = {}; // id -> { mesh, name, peerId, hp }
-
-// 自動マッチング用変数
-const GLOBAL_ROOM_ID = "public-lobby-1vs1-shared-room"; // 共通の固定ID
-let connectingToGlobal = false;
-let globalIsMobile = false;
-
-// LocalStorage 名前の保持
-const savedName = localStorage.getItem('fps_player_name') || "Player_" + Math.floor(Math.random()*1000);
+// 名前のローカルストレージ初期化
+const savedName = localStorage.getItem('game_3d_name') || "Player";
 const nameInputEl = document.getElementById('player-name-input');
 nameInputEl.value = savedName;
 myName = savedName;
 
 nameInputEl.addEventListener('input', (e) => {
-    myName = e.target.value.trim() || "Player";
-    localStorage.setItem('fps_player_name', myName);
+    const val = e.target.value.trim() || "Player";
+    localStorage.setItem('game_3d_name', val);
 });
 
-// PeerJS 初期化関数
-function initPeer() {
-    myPeerId = localStorage.getItem('fps_peer_id') || ('user-' + Math.random().toString(36).substr(2, 6));
-    localStorage.setItem('fps_peer_id', myPeerId);
+let lastDamageTime = performance.now();
 
-    peer = new Peer(myPeerId);
-    
-    peer.on('open', id => { 
-        myPeerId = id;
-        document.getElementById('my-id').innerText = id; 
-    });
-
-    peer.on('connection', conn => {
-        // 自分が共有ロビーのホストの場合、接続リストに追加
-        if (gameMode === 'SHARED' && myPeerId === GLOBAL_ROOM_ID) {
-            roomConnections.push(conn);
-        }
-        setupIncomingConnection(conn);
-    });
-
-    peer.on('error', err => {
-        // ホストが存在しない状態で「みんなの練習場」に入ろうとした場合、自分がホストになる
-        if (err.type === 'peer-unavailable' && connectingToGlobal) {
-            connectingToGlobal = false;
-            updateStatus("最初の参加者です。ホストとして広場を作成中...", "#f1c40f");
-            
-            peer.destroy(); 
-            
-            setTimeout(() => {
-                peer = new Peer(GLOBAL_ROOM_ID); // 固定IDで再作成
-                
-                peer.on('open', id => {
-                    myPeerId = id;
-                    document.getElementById('my-id').innerText = id + " (ホスト)";
-                    gameMode = 'SHARED';
-                    document.getElementById('mode-display').innerText = `みんなの練習場 (HOST)`;
-                    createPracticeTargets();
-                    
-                    peer.on('connection', conn => {
-                        roomConnections.push(conn);
-                        setupIncomingConnection(conn);
-                    });
-                    
-                    initGameUI(globalIsMobile);
-                });
-                
-                peer.on('error', e => {
-                    alert("広場の作成に失敗しました: " + e);
-                    updateStatus("準備完了");
-                });
-            }, 500);
-        } else {
-            console.error("PeerJS Error:", err);
-        }
-    });
-}
-
-// 起動時にPeerJSを初期化
-initPeer();
-
-function updateStatus(text, color="#f1c40f") {
-    const el = document.getElementById('connection-status');
-    el.innerText = text;
-    el.style.color = color;
-}
-
-// 武器データ
+// 武器定義
 const WEAPONS = [
     { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 50, pellets: 1, spread: 0, scopeFov: 30 },
     { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 8, headDamage: 12, pellets: 8, spread: 0.08, scopeFov: 50 },
@@ -238,180 +150,178 @@ let currentWeaponIdx = 0;
 let ammoList = WEAPONS.map(w => w.maxAmmo);
 let isReloading = false;
 
-// -------------------------------------------------------------
-// ネットワーク通信処理（共有練習場・1vs1）
-// -------------------------------------------------------------
-function setupIncomingConnection(conn) {
-    conn.on('open', () => {
-        conn.on('data', data => handleNetworkData(conn, data));
-    });
-    conn.on('close', () => removePlayer(conn.peer));
+let peer = null, conn = null;
+let fixedPeerId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
+localStorage.setItem('game_3d_id', fixedPeerId);
+
+peer = new Peer(fixedPeerId);
+
+peer.on('open', id => { document.getElementById('my-id').innerText = id; });
+peer.on('error', err => { updateStatus("通信エラー: " + err.type, "error"); });
+peer.on('connection', connection => {
+    if(conn && conn.open) { connection.close(); return; }
+    conn = connection;
+    isHost = true;
+    setupConnection();
+});
+
+function connectToPeer() {
+    const targetId = document.getElementById('peer-id-input').value.trim();
+    if(!targetId) return alert("相手のIDを入力してください！");
+    if(targetId === fixedPeerId) return alert("自分のIDです！");
+    
+    updateStatus("相手に接続要求を送信中...", "wait");
+    document.getElementById('btn-connect').disabled = true;
+
+    conn = peer.connect(targetId, { reliable: true });
+    isHost = false;
+    setupConnection();
 }
 
-function handleNetworkData(conn, data) {
-    if (!data || !data.type) return;
+function updateStatus(text, type) {
+    const statusEl = document.getElementById('connection-status');
+    statusEl.innerText = text;
+    statusEl.className = "status-text text-" + type;
+}
 
-    if (data.type === 'challenge_request') {
-        if (confirm(`${data.fromName} (ID: ${data.fromId}) から1vs1の対戦申し込みが来ました！戦いますか？`)) {
-            conn.send({ type: 'challenge_accept', fromId: myPeerId, fromName: myName });
-            start1vs1Battle(conn, false);
-        } else {
-            conn.send({ type: 'challenge_reject' });
+function setupConnection() {
+    conn.on('open', () => {
+        updateStatus("通信確立！ハンドシェイク中...", "wait");
+        myName = nameInputEl.value.trim() || "Player";
+        localStorage.setItem('game_3d_name', myName);
+        sendData({ type: 'init', name: myName, id: fixedPeerId });
+    });
+
+    conn.on('data', data => {
+        if (!data || !data.type) return;
+
+        if (data.type === 'init') {
+            enemyName = data.name;
+            document.getElementById('target-name').innerText = enemyName;
+            sendData({ type: 'init_ack', name: myName });
+            enableStartGame();
         }
-    }
-    else if (data.type === 'challenge_accept') {
-        alert("対戦が承認されました！1vs1バトルを開始します。");
-        start1vs1Battle(conn, true);
-    }
-    else if (data.type === 'challenge_reject') {
-        alert("対戦の申し込みが拒否されました。");
-    }
-    else if (data.type === 'player_state') {
-        updateRemotePlayer(data);
-        if (gameMode === 'SHARED' && roomConnections.length > 0) {
-            broadcastExcept(data, conn.peer);
+        else if (data.type === 'init_ack') {
+            enemyName = data.name;
+            document.getElementById('target-name').innerText = enemyName;
+            enableStartGame();
         }
-    }
-    else if (data.type === 'hit') {
-        if (data.targetId === myPeerId) {
+        else if (data.type === 'state' && isPlaying && !isPracticeMode) {
+            enemyGroup.position.set(data.x, data.y, data.z);
+            enemyGroup.rotation.y = data.yaw;
+            if (data.hp !== undefined) {
+                enemyHP = data.hp;
+                if (enemyHP <= 0) {
+                    isPlaying = false;
+                    setTimeout(() => {
+                        alert(`YOU WIN! ${enemyName} を倒しました！`);
+                        location.reload();
+                    }, 100);
+                }
+            }
+            
+            if(data.crouch) {
+                enemyBody.scale.y = 0.5;
+                enemyHead.position.y = 1.0;
+            } else {
+                enemyBody.scale.y = 1;
+                enemyHead.position.y = 1.9;
+            }
+            enemyGroup.updateMatrixWorld(true);
+        } 
+        else if (data.type === 'hit' && isPlaying && !isPracticeMode) {
             myHP -= data.damage;
+            lastDamageTime = performance.now(); 
             document.getElementById('hp').innerText = Math.max(0, Math.floor(myHP));
+            
             const overlay = document.getElementById('damage-overlay');
             overlay.style.opacity = 0.6;
             setTimeout(() => overlay.style.opacity = 0, 100);
 
             if (myHP <= 0) {
-                alert("倒されました！");
-                location.reload();
+                isPlaying = false;
+                setTimeout(() => {
+                    alert(`YOU LOSE... ${enemyName} に倒されました`);
+                    location.reload();
+                }, 100);
             }
         }
-    }
-}
+    });
 
-function broadcastExcept(data, excludePeerId) {
-    roomConnections.forEach(c => {
-        if (c.peer !== excludePeerId && c.open) {
-            c.send(data);
+    conn.on('close', () => { 
+        if (isPlaying && !isPracticeMode) {
+            alert("対戦相手との接続が切断されました。"); 
+            location.reload(); 
         }
     });
+    conn.on('error', () => { updateStatus("接続エラーが発生しました", "error"); document.getElementById('btn-connect').disabled = false; });
 }
 
-function broadcastAll(data) {
-    if (hostConnection && hostConnection.open) {
-        hostConnection.send(data);
-    } else {
-        roomConnections.forEach(c => { if (c.open) c.send(data); });
-    }
-    if (direct1vs1Conn && direct1vs1Conn.open) {
-        direct1vs1Conn.send(data);
+function enableStartGame() {
+    updateStatus("★ 対戦準備が完了しました！ ★", "success");
+    const startSec = document.getElementById('start-section');
+    startSec.style.opacity = "1";
+    startSec.style.pointerEvents = "auto";
+}
+
+function sendData(data) {
+    if (conn && conn.open) {
+        try { conn.send(data); } catch(e) {}
     }
 }
 
-// -------------------------------------------------------------
-// モード切替・開始処理
-// -------------------------------------------------------------
+function copyMyId() {
+    navigator.clipboard.writeText(fixedPeerId).then(() => alert("IDをコピーしました！"));
+}
+
+let moveInput = { x: 0, z: 0 };
+
+// 練習場を開始する関数
 function startPracticeMode(mobileMode) {
-    gameMode = 'SOLO';
-    document.getElementById('mode-display').innerText = "ソロ練習場";
+    isPracticeMode = true;
+    document.getElementById('target-name').innerText = "練習用ターゲット";
     createPracticeTargets();
-    initGameUI(mobileMode);
+    startGame(mobileMode);
 }
 
-// 共有練習場に自動で入る（ホストへ接続 / いなければ自身がホスト化）
-function joinGlobalLobby(isMob) {
-    if (myPeerId === GLOBAL_ROOM_ID) {
-        // すでに自身がホストの場合
-        initGameUI(isMob);
-        return;
-    }
+function startGame(mobileMode) {
+    myName = nameInputEl.value.trim() || "Player";
+    localStorage.setItem('game_3d_name', myName);
     
-    updateStatus("練習場に接続中...", "#f1c40f");
-    connectingToGlobal = true;
-    globalIsMobile = isMob;
-    
-    // 固定IDへ接続を試みる
-    hostConnection = peer.connect(GLOBAL_ROOM_ID, { reliable: true });
-    
-    hostConnection.on('open', () => {
-        connectingToGlobal = false;
-        gameMode = 'SHARED';
-        document.getElementById('mode-display').innerText = `みんなの練習場`;
-        createPracticeTargets();
-        initGameUI(isMob);
-    });
-
-    hostConnection.on('data', data => handleNetworkData(hostConnection, data));
-}
-
-function connectDirect1vs1() {
-    const targetId = document.getElementById('peer-id-input').value.trim();
-    if (!targetId) return alert("対戦相手のIDを入力してください");
-    
-    updateStatus("相手へ対戦リクエスト送信中...", "#f1c40f");
-    const conn = peer.connect(targetId, { reliable: true });
-    
-    conn.on('open', () => {
-        conn.send({
-            type: 'challenge_request',
-            fromId: myPeerId,
-            fromName: myName
-        });
-        conn.on('data', data => handleNetworkData(conn, data));
-    });
-}
-
-function request1vs1ToPlayer(targetPeerId) {
-    if (confirm(`ID: ${targetPeerId} に1vs1対戦を申し込みますか？`)) {
-        const conn = peer.connect(targetPeerId, { reliable: true });
-        conn.on('open', () => {
-            conn.send({
-                type: 'challenge_request',
-                fromId: myPeerId,
-                fromName: myName
-            });
-            conn.on('data', data => handleNetworkData(conn, data));
-        });
-    }
-}
-
-function start1vs1Battle(conn, isInitiator) {
-    direct1vs1Conn = conn;
-    gameMode = '1VS1';
-    document.getElementById('mode-display').innerText = "1vs1 バトル";
-    
-    Object.keys(remotePlayers).forEach(id => removePlayer(id));
-
-    if (isInitiator) {
-        camera.position.set(0, player.height, 12);
-        player.yaw = Math.PI;
-    } else {
-        camera.position.set(0, player.height, -12);
-        player.yaw = 0;
-    }
-
-    const isMob = confirm("スマホで操作しますか？ OK:スマホ / キャンセル:PC");
-    initGameUI(isMob);
-}
-
-function initGameUI(mobileMode) {
     isMobile = mobileMode;
     document.getElementById('menu').style.display = 'none';
     document.getElementById('ui-layer').style.display = 'block';
     
+    if (isHost && !isPracticeMode) {
+        camera.position.set(0, player.height, 10);
+        player.yaw = Math.PI;
+    } else {
+        camera.position.set(0, player.height, -10);
+        player.yaw = 0;
+    }
+    camera.rotation.set(player.pitch, player.yaw, 0);
+
     isPlaying = true;
     updateWeaponDisplay();
 
     if (!isMobile) {
-        const lock = () => { if (isPlaying && document.pointerLockElement !== document.body) document.body.requestPointerLock(); };
-        lock();
-        document.addEventListener('click', lock);
+        const requestLock = () => {
+            if (isPlaying && !isMobile && document.pointerLockElement !== document.body) {
+                document.body.requestPointerLock();
+            }
+        };
+
+        requestLock();
+        document.addEventListener('click', requestLock);
 
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
                 player.yaw -= e.movementX * 0.002;
+                
                 const pitchDelta = e.movementY * 0.002;
                 player.pitch += INVERT_Y ? pitchDelta : -pitchDelta;
                 player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+                
                 camera.rotation.set(player.pitch, player.yaw, 0);
             }
         });
@@ -445,94 +355,122 @@ function initGameUI(mobileMode) {
         document.querySelectorAll('.mobile-btn').forEach(b => b.style.display = 'flex');
         document.getElementById('joystick-container').style.display = 'block';
         document.getElementById('mobile-look-area').style.display = 'block';
+
         setupPointerControls();
     }
 }
 
-// -------------------------------------------------------------
-// プレイヤーオブジェクト・頭上ネームタグ管理
-// -------------------------------------------------------------
-function updateRemotePlayer(data) {
-    if (data.id === myPeerId) return;
+// モバイルタッチ操作処理
+function setupPointerControls() {
+    const bindBtn = (id, action) => {
+        const el = document.getElementById(id);
+        el.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            action();
+        });
+    };
 
-    let p = remotePlayers[data.id];
-    if (!p) {
-        const group = new THREE.Group();
-        const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, 1), new THREE.MeshLambertMaterial({ color: 0xe74c3c }));
-        bMesh.position.y = 0.75;
-        group.add(bMesh);
+    bindBtn('btn-shoot', shoot);
+    bindBtn('btn-jump', jump);
+    bindBtn('btn-crouch', () => crouch(!player.isCrouching));
+    bindBtn('btn-scope', toggleScope);
+    bindBtn('btn-reload', reload);
+    bindBtn('btn-weapon', cycleWeapon);
 
-        const hMesh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshLambertMaterial({ color: 0xf1c40f }));
-        hMesh.position.y = 1.9;
-        group.add(hMesh);
+    const lookArea = document.getElementById('mobile-look-area');
+    let lookPointerId = null;
+    let lastLookX = 0, lastLookY = 0;
 
-        scene.add(group);
-
-        const uiContainer = document.createElement('div');
-        uiContainer.className = 'nametag-container';
-        uiContainer.innerHTML = `
-            <div class="nametag-box">
-                <div>${data.name}</div>
-                <div class="nametag-id">ID: ${data.id}</div>
-                <button class="btn-challenge" onclick="request1vs1ToPlayer('${data.id}')">⚔️ 1vs1で戦う</button>
-            </div>
-        `;
-        document.getElementById('nametags-container-layer').appendChild(uiContainer);
-
-        p = {
-            mesh: group,
-            body: bMesh,
-            head: hMesh,
-            ui: uiContainer,
-            name: data.name,
-            peerId: data.id,
-            hp: data.hp || 100
-        };
-        remotePlayers[data.id] = p;
-    }
-
-    p.mesh.position.set(data.x, data.y, data.z);
-    p.mesh.rotation.y = data.yaw;
-    if (data.crouch) {
-        p.body.scale.y = 0.5;
-        p.head.position.y = 1.0;
-    } else {
-        p.body.scale.y = 1;
-        p.head.position.y = 1.9;
-    }
-    p.mesh.updateMatrixWorld(true);
-}
-
-function removePlayer(id) {
-    if (remotePlayers[id]) {
-        scene.remove(remotePlayers[id].mesh);
-        if (remotePlayers[id].ui) remotePlayers[id].ui.remove();
-        delete remotePlayers[id];
-    }
-}
-
-function updateNametagsPosition() {
-    Object.values(remotePlayers).forEach(p => {
-        const pos = p.mesh.position.clone();
-        pos.y += 2.6;
-        pos.project(camera);
-
-        const x = (pos.x * .5 + .5) * window.innerWidth;
-        const y = (pos.y * -.5 + .5) * window.innerHeight;
-
-        if (pos.z < 1 && x > 0 && x < window.innerWidth && y > 0 && y < window.innerHeight) {
-            p.ui.style.display = 'block';
-            p.ui.style.left = `${x}px`;
-            p.ui.style.top = `${y}px`;
-        } else {
-            p.ui.style.display = 'none';
+    lookArea.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (lookPointerId === null) {
+            lookPointerId = e.pointerId;
+            lastLookX = e.clientX;
+            lastLookY = e.clientY;
+            try { lookArea.setPointerCapture(e.pointerId); } catch(err){}
         }
     });
+
+    lookArea.addEventListener('pointermove', (e) => {
+        if (e.pointerId === lookPointerId) {
+            const dx = e.clientX - lastLookX;
+            const dy = e.clientY - lastLookY;
+            
+            player.yaw -= dx * 0.004;
+            
+            const pitchDelta = dy * 0.004;
+            player.pitch += INVERT_Y ? pitchDelta : -pitchDelta;
+            player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+            
+            camera.rotation.set(player.pitch, player.yaw, 0);
+            
+            lastLookX = e.clientX;
+            lastLookY = e.clientY;
+        }
+    });
+
+    const endLook = (e) => {
+        if (e.pointerId === lookPointerId) {
+            lookPointerId = null;
+            try { lookArea.releasePointerCapture(e.pointerId); } catch(err){}
+        }
+    };
+    lookArea.addEventListener('pointerup', endLook);
+    lookArea.addEventListener('pointercancel', endLook);
+
+    const joyContainer = document.getElementById('joystick-container');
+    const joyStick = document.getElementById('joystick-stick');
+    let joyPointerId = null;
+    let joyCenterX = 0, joyCenterY = 0;
+
+    joyContainer.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (joyPointerId === null) {
+            joyPointerId = e.pointerId;
+            const rect = joyContainer.getBoundingClientRect();
+            joyCenterX = rect.left + rect.width / 2;
+            joyCenterY = rect.top + rect.height / 2;
+            try { joyContainer.setPointerCapture(e.pointerId); } catch(err){}
+            updateJoy(e);
+        }
+    });
+
+    joyContainer.addEventListener('pointermove', (e) => {
+        if (e.pointerId === joyPointerId) {
+            updateJoy(e);
+        }
+    });
+
+    function updateJoy(e) {
+        let dx = e.clientX - joyCenterX;
+        let dy = e.clientY - joyCenterY;
+        let dist = Math.hypot(dx, dy);
+        let maxDist = 40;
+        if (dist > maxDist) {
+            dx = (dx / dist) * maxDist;
+            dy = (dy / dist) * maxDist;
+        }
+        joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
+        
+        moveInput.x = -dx / maxDist; 
+        moveInput.z = -dy / maxDist;
+    }
+
+    const endJoy = (e) => {
+        if (e.pointerId === joyPointerId) {
+            joyPointerId = null;
+            joyStick.style.transform = 'translate(0px, 0px)';
+            moveInput.x = 0;
+            moveInput.z = 0;
+            try { joyContainer.releasePointerCapture(e.pointerId); } catch(err){}
+        }
+    };
+    joyContainer.addEventListener('pointerup', endJoy);
+    joyContainer.addEventListener('pointercancel', endJoy);
 }
 
-// -------------------------------------------------------------
-// Three.js シーン構築
-// -------------------------------------------------------------
+// Three.js 描画設定
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); 
 
@@ -542,6 +480,7 @@ camera.rotation.order = 'YXZ';
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
 renderer.domElement.style.position = 'absolute';
 renderer.domElement.style.top = '0';
 renderer.domElement.style.left = '0';
@@ -552,34 +491,51 @@ document.body.appendChild(renderer.domElement);
 const light = new THREE.DirectionalLight(0xffffff, 1);
 light.position.set(5, 10, 5);
 scene.add(light);
-scene.add(new THREE.AmbientLight(0x555555));
+scene.add(new THREE.AmbientLight(0x404040));
 
-const floorGeom = new THREE.PlaneGeometry(120, 120);
+const floorGeom = new THREE.PlaneGeometry(100, 100);
 const floorMat = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
 const floor = new THREE.Mesh(floorGeom, floorMat);
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
-const gridHelper = new THREE.GridHelper(120, 60, 0x000000, 0x000000);
+const gridHelper = new THREE.GridHelper(100, 50, 0x000000, 0x000000);
 gridHelper.material.opacity = 0.2;
 gridHelper.material.transparent = true;
 gridHelper.position.y = 0.01;
 scene.add(gridHelper);
 
+// 敵モデル
+const enemyGroup = new THREE.Group();
+scene.add(enemyGroup);
+
+const bodyGeom = new THREE.BoxGeometry(1, 1.5, 1);
+const bodyMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
+const enemyBody = new THREE.Mesh(bodyGeom, bodyMat);
+enemyBody.position.y = 0.75;
+enemyGroup.add(enemyBody);
+
+const headGeom = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+const headMat = new THREE.MeshLambertMaterial({ color: 0xf1c40f });
+const enemyHead = new THREE.Mesh(headGeom, headMat);
+enemyHead.position.y = 1.9;
+enemyGroup.add(enemyHead);
+
+enemyGroup.position.set(0, -100, 0);
+
+// 練習用ターゲットの作成
 const practiceTargets = [];
 function createPracticeTargets() {
-    if (practiceTargets.length > 0) return;
     const targetPositions = [
-        { x: -8, y: 2, z: 0 },
-        { x: 0, y: 2.5, z: 10 },
-        { x: 8, y: 1.8, z: -4 },
-        { x: -12, y: 3, z: 15 },
-        { x: 12, y: 2, z: 12 }
+        { x: -5, y: 2, z: 0 },
+        { x: 0, y: 2.5, z: 5 },
+        { x: 5, y: 1.8, z: -2 }
     ];
 
-    targetPositions.forEach(pos => {
+    targetPositions.forEach((pos, idx) => {
         const group = new THREE.Group();
         
+        // 標的の円盤
         const outerGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.1, 32);
         const outerMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
         const outer = new THREE.Mesh(outerGeo, outerMat);
@@ -592,10 +548,12 @@ function createPracticeTargets() {
         inner.rotation.x = Math.PI / 2;
         group.add(inner);
 
+        // 支柱
         const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, pos.y, 16);
         const poleMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
         const pole = new THREE.Mesh(poleGeo, poleMat);
         pole.position.y = -pos.y / 2;
+        pole.rotation.x = 0;
         group.add(pole);
 
         group.position.set(pos.x, pos.y, pos.z);
@@ -607,6 +565,7 @@ function createPracticeTargets() {
     });
 }
 
+// 弾痕（Bullet Hole）管理
 const bulletHoles = [];
 const MAX_BULLET_HOLES = 50;
 
@@ -615,8 +574,12 @@ function createBulletHole(point, normal) {
     const holeMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
     const hole = new THREE.Mesh(holeGeo, holeMat);
 
+    // 面からわずかに浮かせてチラつき防止
     hole.position.copy(point).add(normal.clone().multiplyScalar(0.01));
-    hole.lookAt(point.clone().add(normal));
+    
+    // 法線方向を向くよう調整
+    const lookAtPoint = point.clone().add(normal);
+    hole.lookAt(lookAtPoint);
 
     scene.add(hole);
     bulletHoles.push(hole);
@@ -643,8 +606,8 @@ const player = {
     pitch: 0,
     yaw: 0
 };
+
 const keys = { w: false, a: false, s: false, d: false };
-let moveInput = { x: 0, z: 0 };
 
 function jump() {
     if (player.isGrounded && !player.isCrouching) {
@@ -661,7 +624,8 @@ function crouch(isDown) {
 
 function toggleScope() {
     player.isScoping = !player.isScoping;
-    camera.fov = player.isScoping ? WEAPONS[currentWeaponIdx].scopeFov : 75;
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+    camera.fov = player.isScoping ? currentWeapon.scopeFov : 75;
     camera.updateProjectionMatrix();
 }
 
@@ -675,29 +639,32 @@ function switchWeapon(index) {
     updateWeaponDisplay();
 }
 
-function cycleWeapon() { switchWeapon((currentWeaponIdx + 1) % WEAPONS.length); }
+function cycleWeapon() {
+    switchWeapon((currentWeaponIdx + 1) % WEAPONS.length);
+}
 
 function reload() {
-    const w = WEAPONS[currentWeaponIdx];
-    if (isReloading || ammoList[currentWeaponIdx] === w.maxAmmo) return;
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+    if (isReloading || ammoList[currentWeaponIdx] === currentWeapon.maxAmmo) return;
     isReloading = true;
     updateWeaponDisplay();
     setTimeout(() => {
-        ammoList[currentWeaponIdx] = w.maxAmmo;
+        ammoList[currentWeaponIdx] = currentWeapon.maxAmmo;
         isReloading = false;
         updateWeaponDisplay();
-    }, w.reloadTime); 
+    }, currentWeapon.reloadTime); 
 }
 
 function updateWeaponDisplay() {
-    const w = WEAPONS[currentWeaponIdx];
-    document.getElementById('weapon-display').innerText = `${w.name} (${currentWeaponIdx + 1})`;
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+    document.getElementById('weapon-display').innerText = `${currentWeapon.name} (${currentWeaponIdx + 1})`;
+    
     const ammoEl = document.getElementById('ammo-display');
     if (isReloading) {
         ammoEl.innerText = "Reloading...";
         ammoEl.classList.add('reloading');
     } else {
-        ammoEl.innerText = `${ammoList[currentWeaponIdx]} / ${w.maxAmmo}`;
+        ammoEl.innerText = `${ammoList[currentWeaponIdx]} / ${currentWeapon.maxAmmo}`;
         ammoEl.classList.remove('reloading');
     }
 }
@@ -705,8 +672,8 @@ function updateWeaponDisplay() {
 const raycaster = new THREE.Raycaster();
 
 function shoot() {
-    if (!isPlaying || isReloading) return;
-    const w = WEAPONS[currentWeaponIdx];
+    if(!isPlaying || isReloading) return;
+    const currentWeapon = WEAPONS[currentWeaponIdx];
 
     if (ammoList[currentWeaponIdx] <= 0) return reload();
 
@@ -725,23 +692,20 @@ function shoot() {
 
     player.pitch -= (currentWeaponIdx === 1 ? 0.03 : 0.015);
     camera.rotation.set(player.pitch, player.yaw, 0);
+    
+    enemyGroup.updateMatrixWorld(true);
 
-    // ★修正ポイント：1vs1モードの時のみ、他プレイヤーを当たり判定リスト（壁）として追加する
-    const remoteMeshes = [];
-    if (gameMode === '1VS1') {
-        Object.values(remotePlayers).forEach(p => {
-            remoteMeshes.push(p.body, p.head);
-        });
-    }
+    let totalDamage = 0;
+    let isEnemyHit = false;
 
-    // 床・的・（1vs1なら他プレイヤー）の順で当たり判定をセット
-    const targetsToRay = [floor, ...practiceTargets, ...remoteMeshes];
+    // Raycastに対象となるオブジェクトをまとめる
+    const targetsToRay = [floor, enemyHead, enemyBody, ...practiceTargets];
 
-    for (let i = 0; i < w.pellets; i++) {
+    for (let i = 0; i < currentWeapon.pellets; i++) {
         let screenPos = new THREE.Vector2(0, 0);
-        if (w.spread > 0) {
-            screenPos.x += (Math.random() - 0.5) * w.spread;
-            screenPos.y += (Math.random() - 0.5) * w.spread;
+        if (currentWeapon.spread > 0) {
+            screenPos.x += (Math.random() - 0.5) * currentWeapon.spread;
+            screenPos.y += (Math.random() - 0.5) * currentWeapon.spread;
         }
 
         raycaster.setFromCamera(screenPos, camera);
@@ -749,42 +713,39 @@ function shoot() {
         
         if (intersects.length > 0) {
             const hit = intersects[0];
-            const hitObj = hit.object;
+            const hitObject = hit.object;
 
+            // 着地点に黒い弾痕を生成
             if (hit.point && hit.face) {
                 createBulletHole(hit.point, hit.face.normal);
             }
 
-            // 的にヒットした時の処理
-            if (hitObj.userData && hitObj.userData.isTarget) {
+            // 敵対戦プレイヤーへの判定
+            if (!isPracticeMode && (hitObject === enemyHead || hitObject === enemyBody)) {
+                isEnemyHit = true;
+                totalDamage += (hitObject === enemyHead) ? currentWeapon.headDamage : currentWeapon.bodyDamage;
+            }
+            
+            // 練習場ターゲットへの判定
+            if (hitObject.userData && hitObject.userData.isTarget) {
                 crosshair.classList.add('hit-marker');
                 setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
 
-                const dmg = hitObj.userData.inner ? w.headDamage : w.bodyDamage;
-                showTargetHitMessage(hitObj.userData.inner ? `BULLSEYE! -${dmg}` : `HIT! -${dmg}`);
+                const damage = hitObject.userData.inner ? currentWeapon.headDamage : currentWeapon.bodyDamage;
+                showTargetHitMessage(hitObject.userData.inner ? `BULLSEYE! -${damage}` : `HIT! -${damage}`);
 
-                const grp = hitObj.userData.parentGroup;
-                grp.position.z += 0.1;
-                setTimeout(() => grp.position.z -= 0.1, 50);
-            }
-
-            // ★修正ポイント：1vs1モードの時のみ、ダメージ判定とヒットマーカーを表示する
-            if (gameMode === '1VS1') {
-                Object.values(remotePlayers).forEach(p => {
-                    if (hitObj === p.body || hitObj === p.head) {
-                        crosshair.classList.add('hit-marker');
-                        setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
-                        const damage = (hitObj === p.head) ? w.headDamage : w.bodyDamage;
-                        
-                        broadcastAll({
-                            type: 'hit',
-                            targetId: p.peerId,
-                            damage: damage
-                        });
-                    }
-                });
+                // ターゲットをヒット時に少しアニメーション
+                const group = hitObject.userData.parentGroup;
+                group.position.z += 0.1;
+                setTimeout(() => group.position.z -= 0.1, 50);
             }
         }
+    }
+
+    if (isEnemyHit && !isPracticeMode) {
+        crosshair.classList.add('hit-marker');
+        setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
+        sendData({ type: 'hit', damage: totalDamage });
     }
 }
 
@@ -795,92 +756,28 @@ function showTargetHitMessage(msg) {
     setTimeout(() => el.style.opacity = 0, 400);
 }
 
-function setupPointerControls() {
-    const bindBtn = (id, action) => {
-        const el = document.getElementById(id);
-        el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); action(); });
-    };
-    bindBtn('btn-shoot', shoot);
-    bindBtn('btn-jump', jump);
-    bindBtn('btn-crouch', () => crouch(!player.isCrouching));
-    bindBtn('btn-scope', toggleScope);
-    bindBtn('btn-reload', reload);
-    bindBtn('btn-weapon', cycleWeapon);
+function updateEnemyNameLabel() {
+    if (!isPlaying || isPracticeMode) return;
+    
+    const enemyPos = enemyGroup.position.clone();
+    enemyPos.y += 2.6;
+    enemyPos.project(camera);
 
-    const lookArea = document.getElementById('mobile-look-area');
-    let lookPointerId = null, lastLookX = 0, lastLookY = 0;
+    const x = (enemyPos.x * .5 + .5) * window.innerWidth;
+    const y = (enemyPos.y * -.5 + .5) * window.innerHeight;
 
-    lookArea.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        if (lookPointerId === null) {
-            lookPointerId = e.pointerId;
-            lastLookX = e.clientX; lastLookY = e.clientY;
-            try { lookArea.setPointerCapture(e.pointerId); } catch(err){}
-        }
-    });
-
-    lookArea.addEventListener('pointermove', (e) => {
-        if (e.pointerId === lookPointerId) {
-            const dx = e.clientX - lastLookX, dy = e.clientY - lastLookY;
-            player.yaw -= dx * 0.004;
-            const pitchDelta = dy * 0.004;
-            player.pitch += INVERT_Y ? pitchDelta : -pitchDelta;
-            player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
-            camera.rotation.set(player.pitch, player.yaw, 0);
-            lastLookX = e.clientX; lastLookY = e.clientY;
-        }
-    });
-
-    const endLook = (e) => {
-        if (e.pointerId === lookPointerId) {
-            lookPointerId = null;
-            try { lookArea.releasePointerCapture(e.pointerId); } catch(err){}
-        }
-    };
-    lookArea.addEventListener('pointerup', endLook);
-    lookArea.addEventListener('pointercancel', endLook);
-
-    const joyContainer = document.getElementById('joystick-container');
-    const joyStick = document.getElementById('joystick-stick');
-    let joyPointerId = null, joyCenterX = 0, joyCenterY = 0;
-
-    joyContainer.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        if (joyPointerId === null) {
-            joyPointerId = e.pointerId;
-            const rect = joyContainer.getBoundingClientRect();
-            joyCenterX = rect.left + rect.width / 2;
-            joyCenterY = rect.top + rect.height / 2;
-            try { joyContainer.setPointerCapture(e.pointerId); } catch(err){}
-            updateJoy(e);
-        }
-    });
-
-    joyContainer.addEventListener('pointermove', (e) => { if (e.pointerId === joyPointerId) updateJoy(e); });
-
-    function updateJoy(e) {
-        let dx = e.clientX - joyCenterX, dy = e.clientY - joyCenterY;
-        let dist = Math.hypot(dx, dy), maxDist = 40;
-        if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
-        joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
-        moveInput.x = -dx / maxDist; moveInput.z = -dy / maxDist;
+    const label = document.getElementById('enemy-name-label');
+    label.innerText = `${enemyName} (HP: ${Math.floor(enemyHP)})`;
+    
+    if (enemyPos.z < 1 && x > 0 && x < window.innerWidth && y > 0 && y < window.innerHeight) {
+        label.style.display = 'block';
+        label.style.left = `${x}px`;
+        label.style.top = `${y}px`;
+    } else {
+        label.style.display = 'none';
     }
-
-    const endJoy = (e) => {
-        if (e.pointerId === joyPointerId) {
-            joyPointerId = null;
-            joyStick.style.transform = 'translate(0px, 0px)';
-            moveInput.x = 0; moveInput.z = 0;
-            try { joyContainer.releasePointerCapture(e.pointerId); } catch(err){}
-        }
-    };
-    joyContainer.addEventListener('pointerup', endJoy);
-    joyContainer.addEventListener('pointercancel', endJoy);
 }
 
-// -------------------------------------------------------------
-// メインゲームループ
-// -------------------------------------------------------------
 let prevTime = performance.now();
 
 function animate() {
@@ -891,11 +788,19 @@ function animate() {
     prevTime = time;
 
     if (isPlaying) {
+        if (!isPracticeMode && myHP < 100 && myHP > 0) {
+            if (time - lastDamageTime >= 10000) {
+                myHP = Math.min(100, myHP + 10 * delta);
+                document.getElementById('hp').innerText = Math.floor(myHP);
+            }
+        }
+
         player.velocity.y -= player.gravity * delta;
 
         let dirX = 0, dirZ = 0;
         if (isMobile) {
-            dirX = moveInput.x; dirZ = moveInput.z;
+            dirX = moveInput.x;
+            dirZ = moveInput.z;
         } else {
             dirZ = Number(keys.w) - Number(keys.s);
             dirX = Number(keys.a) - Number(keys.d);
@@ -911,10 +816,15 @@ function animate() {
             camera.position.z -= (Math.cos(angle) * dirZ - Math.sin(angle) * dirX) * moveSpeed * delta;
         }
 
+        // ジャンプ時の前進慣性処理
         if (player.forwardBoost > 0) {
-            camera.position.x += -Math.sin(player.yaw) * player.forwardBoost * delta;
-            camera.position.z += -Math.cos(player.yaw) * player.forwardBoost * delta;
-            player.forwardBoost = Math.max(0, player.forwardBoost - 40 * delta);
+            const fwdX = -Math.sin(player.yaw);
+            const fwdZ = -Math.cos(player.yaw);
+            camera.position.x += fwdX * player.forwardBoost * delta;
+            camera.position.z += fwdZ * player.forwardBoost * delta;
+            
+            player.forwardBoost -= 40 * delta;
+            if (player.forwardBoost < 0) player.forwardBoost = 0;
         }
 
         camera.position.y += player.velocity.y * delta;
@@ -926,12 +836,10 @@ function animate() {
             player.isGrounded = true;
         }
 
-        if (gameMode !== 'SOLO') {
-            const modelY = camera.position.y - currentGround;
-            broadcastAll({
-                type: 'player_state',
-                id: myPeerId,
-                name: myName,
+        if (!isPracticeMode) {
+            const modelY = camera.position.y - currentGround; 
+            sendData({
+                type: 'state',
                 x: camera.position.x,
                 y: modelY, 
                 z: camera.position.z,
@@ -939,9 +847,9 @@ function animate() {
                 crouch: player.isCrouching,
                 hp: Math.floor(myHP)
             });
+            
+            updateEnemyNameLabel();
         }
-
-        updateNametagsPosition();
     }
 
     renderer.render(scene, camera);
