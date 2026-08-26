@@ -138,7 +138,6 @@ nameInputEl.addEventListener('input', (e) => {
 
 let lastDamageTime = performance.now();
 
-// 全7種類の武器ステータス（FAMASを3点バーストに変更）
 const WEAPONS = [
     { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 30, pellets: 1, spread: 0.05, scopeFov: 30, isAuto: true, fireRate: 100 },
     { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 7, headDamage: 14, pellets: 8, spread: 0.15, scopeFov: 50, isAuto: false, fireRate: 800 },
@@ -595,7 +594,7 @@ const semiMesh = new THREE.Group();
 semiMesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.11, 1.1), new THREE.MeshLambertMaterial({ color: 0x111111 })));
 enemyWeaponMeshes.push(semiMesh);
 
-// 5: FAMAS (上部にキャリングハンドル)
+// 5: FAMAS
 const famasMesh = new THREE.Group();
 const famasBody = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.8), new THREE.MeshLambertMaterial({ color: 0x333333 }));
 const famasHandle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.4), new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
@@ -840,10 +839,9 @@ function fireSingleBullet() {
         else if (currentWeapon.name === "スナイパー") recoil = 0.035;
         else if (currentWeapon.name === "サブマシンガン") recoil = 0.004;
         else if (currentWeapon.name === "セミオート") recoil = 0.015;
-        else if (currentWeapon.name.includes("FAMAS")) recoil = 0.004; // 3連射用に調整
+        else if (currentWeapon.name.includes("FAMAS")) recoil = 0.001; // 下降量を大幅に小さく調整
         
-        // 修正: 射撃時に視点が跳ね上がる（上を向く）処理へ変更
-        player.pitch += recoil;
+        player.pitch -= recoil; // 元の向き（下）に戻し、FAMASのみ引き下げ幅を極小化
         player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
     }
     crosshair.classList.add('shooting');
