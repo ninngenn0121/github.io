@@ -138,20 +138,21 @@ nameInputEl.addEventListener('input', (e) => {
 
 let lastDamageTime = performance.now();
 
-// 全7種類の武器ステータス
+// 全7種類の武器ステータス（FAMASを3点バーストに変更）
 const WEAPONS = [
     { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 30, pellets: 1, spread: 0.05, scopeFov: 30, isAuto: true, fireRate: 100 },
     { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 7, headDamage: 14, pellets: 8, spread: 0.15, scopeFov: 50, isAuto: false, fireRate: 800 },
     { name: "スナイパー", maxAmmo: 5, reloadTime: 2500, bodyDamage: 70, headDamage: 100, pellets: 1, spread: 0.1, scopeFov: 15, isAuto: false, fireRate: 1200 },
     { name: "サブマシンガン", maxAmmo: 40, reloadTime: 1200, bodyDamage: 8, headDamage: 12, pellets: 1, spread: 0.08, scopeFov: 50, isAuto: true, fireRate: 70 },
     { name: "セミオート", maxAmmo: 15, reloadTime: 1400, bodyDamage: 32, headDamage: 64, pellets: 1, spread: 0.02, scopeFov: 35, isAuto: false, fireRate: 180 },
-    { name: "FAMAS", maxAmmo: 25, reloadTime: 1300, bodyDamage: 14, headDamage: 28, pellets: 1, spread: 0.06, scopeFov: 40, isAuto: true, fireRate: 55 },
+    { name: "FAMAS (3点バースト)", maxAmmo: 25, reloadTime: 1300, bodyDamage: 18, headDamage: 36, pellets: 1, spread: 0.05, scopeFov: 40, isAuto: false, isBurst: true, burstCount: 3, burstDelay: 70, fireRate: 450 },
     { name: "ナイフ", maxAmmo: "∞", reloadTime: 0, bodyDamage: 50, headDamage: 100, pellets: 1, spread: 0, scopeFov: 75, range: 4, isAuto: false, fireRate: 400 }
 ];
 let currentWeaponIdx = 0;
 let ammoList = WEAPONS.map(w => w.maxAmmo);
 let isReloading = false;
 let isAutoShooting = false;
+let isBursting = false;
 let lastShootTime = 0;
 
 let peer = null, conn = null;
@@ -558,7 +559,7 @@ mouth.position.set(0, -0.15, -0.41);
 
 enemyHead.add(leftEye, rightEye, mouth);
 
-// 相手の装備武器モデル（前方Z=-0.95へ配置してめり込みを回避）
+// 相手の装備武器モデル
 const enemyWeaponGroup = new THREE.Group();
 enemyWeaponGroup.position.set(0.4, 0.7, -0.95); 
 enemyGroup.add(enemyWeaponGroup);
@@ -725,6 +726,7 @@ function toggleScope() {
 function switchWeapon(index) {
     if (isReloading || index === currentWeaponIdx) return;
     isAutoShooting = false; 
+    isBursting = false;
     currentWeaponIdx = index;
     if (player.isScoping) {
         camera.fov = WEAPONS[currentWeaponIdx].scopeFov;
@@ -741,6 +743,7 @@ function reload() {
     const currentWeapon = WEAPONS[currentWeaponIdx];
     if (currentWeapon.maxAmmo === "∞" || isReloading || ammoList[currentWeaponIdx] === currentWeapon.maxAmmo) return;
     isReloading = true;
+    isBursting = false;
     updateWeaponDisplay();
     setTimeout(() => {
         ammoList[currentWeaponIdx] = currentWeapon.maxAmmo;
@@ -770,8 +773,13 @@ function updateWeaponDisplay() {
 const raycaster = new THREE.Raycaster();
 
 function handleShootStart() {
-    if(!isPlaying || isReloading) return;
+    if(!isPlaying || isReloading || isBursting) return;
     const currentWeapon = WEAPONS[currentWeaponIdx];
+
+    if (currentWeapon.isBurst) {
+        triggerBurst();
+        return;
+    }
     
     if (currentWeapon.isAuto) {
         isAutoShooting = true;
@@ -783,22 +791,42 @@ function handleShootEnd() {
     isAutoShooting = false;
 }
 
-function shoot() {
-    if(!isPlaying || isReloading) return;
+function triggerBurst() {
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+    const now = performance.now();
+    if (now - lastShootTime < currentWeapon.fireRate - 5) return;
+    if (ammoList[currentWeaponIdx] <= 0) return reload();
+
+    isBursting = true;
+    let fired = 0;
+
+    function fireNext() {
+        if (!isPlaying || isReloading || ammoList[currentWeaponIdx] <= 0 || fired >= currentWeapon.burstCount) {
+            isBursting = false;
+            lastShootTime = performance.now();
+            return;
+        }
+
+        fireSingleBullet();
+        fired++;
+
+        if (fired < currentWeapon.burstCount && ammoList[currentWeaponIdx] > 0) {
+            setTimeout(fireNext, currentWeapon.burstDelay || 70);
+        } else {
+            isBursting = false;
+            lastShootTime = performance.now();
+        }
+    }
+
+    fireNext();
+}
+
+function fireSingleBullet() {
     const currentWeapon = WEAPONS[currentWeaponIdx];
 
-    const now = performance.now();
-    if (now - lastShootTime < currentWeapon.fireRate - 5) return; 
-
     if (currentWeapon.maxAmmo !== "∞") {
-        if (ammoList[currentWeaponIdx] <= 0) {
-            isAutoShooting = false; 
-            return reload();
-        }
         ammoList[currentWeaponIdx]--;
     }
-    
-    lastShootTime = performance.now();
     updateWeaponDisplay();
 
     const flash = document.getElementById('flash-overlay');
@@ -812,7 +840,7 @@ function shoot() {
         else if (currentWeapon.name === "スナイパー") recoil = 0.04;
         else if (currentWeapon.name === "サブマシンガン") recoil = 0.005;
         else if (currentWeapon.name === "セミオート") recoil = 0.02;
-        else if (currentWeapon.name === "FAMAS") recoil = 0.012;
+        else if (currentWeapon.name.includes("FAMAS")) recoil = 0.008;
         
         player.pitch -= recoil;
     }
@@ -878,6 +906,29 @@ function shoot() {
         setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
         sendData({ type: 'hit', damage: totalDamage });
     }
+}
+
+function shoot() {
+    if(!isPlaying || isReloading || isBursting) return;
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+
+    if (currentWeapon.isBurst) {
+        triggerBurst();
+        return;
+    }
+
+    const now = performance.now();
+    if (now - lastShootTime < currentWeapon.fireRate - 5) return; 
+
+    if (currentWeapon.maxAmmo !== "∞") {
+        if (ammoList[currentWeaponIdx] <= 0) {
+            isAutoShooting = false; 
+            return reload();
+        }
+    }
+    
+    lastShootTime = performance.now();
+    fireSingleBullet();
 }
 
 function showTargetHitMessage(msg) {
