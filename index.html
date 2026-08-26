@@ -835,14 +835,16 @@ function fireSingleBullet() {
     if (currentWeapon.maxAmmo !== "∞") {
         flash.style.opacity = 0.3;
         
-        let recoil = 0.01;
-        if (currentWeapon.name === "ショットガン") recoil = 0.03;
-        else if (currentWeapon.name === "スナイパー") recoil = 0.04;
-        else if (currentWeapon.name === "サブマシンガン") recoil = 0.005;
-        else if (currentWeapon.name === "セミオート") recoil = 0.02;
-        else if (currentWeapon.name.includes("FAMAS")) recoil = 0.008;
+        let recoil = 0.008;
+        if (currentWeapon.name === "ショットガン") recoil = 0.025;
+        else if (currentWeapon.name === "スナイパー") recoil = 0.035;
+        else if (currentWeapon.name === "サブマシンガン") recoil = 0.004;
+        else if (currentWeapon.name === "セミオート") recoil = 0.015;
+        else if (currentWeapon.name.includes("FAMAS")) recoil = 0.004; // 3連射用に調整
         
-        player.pitch -= recoil;
+        // 修正: 射撃時に視点が跳ね上がる（上を向く）処理へ変更
+        player.pitch += recoil;
+        player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
     }
     crosshair.classList.add('shooting');
     
