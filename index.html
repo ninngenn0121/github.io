@@ -138,7 +138,6 @@ nameInputEl.addEventListener('input', (e) => {
 
 let lastDamageTime = performance.now();
 
-// ★ 武器設定: spread（腰撃ち時のブレ具合）を設定
 const WEAPONS = [
     { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 30, pellets: 1, spread: 0.05, scopeFov: 30, isAuto: true, fireRate: 100 },
     { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 7, headDamage: 14, pellets: 8, spread: 0.15, scopeFov: 50, isAuto: false, fireRate: 800 },
@@ -211,6 +210,12 @@ function setupConnection() {
         else if (data.type === 'state' && isPlaying && !isPracticeMode) {
             enemyGroup.position.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
+            
+            // 相手の装備武器を更新
+            if (data.weapon !== undefined) {
+                updateEnemyWeapon(data.weapon);
+            }
+
             if (data.hp !== undefined) {
                 enemyHP = data.hp;
                 if (enemyHP <= 0) {
@@ -519,6 +524,7 @@ gridHelper.material.transparent = true;
 gridHelper.position.y = 0.01;
 scene.add(gridHelper);
 
+// 敵プレイヤーモデル構築
 const enemyGroup = new THREE.Group();
 scene.add(enemyGroup);
 
@@ -533,6 +539,70 @@ const headMat = new THREE.MeshLambertMaterial({ color: 0xf1c40f });
 const enemyHead = new THREE.Mesh(headGeom, headMat);
 enemyHead.position.y = 1.9;
 enemyGroup.add(enemyHead);
+
+// ★ 敵キャラの顔（目と口）を追加
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+const mouthMat = new THREE.MeshBasicMaterial({ color: 0xc0392b });
+
+const leftEye = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.02), eyeMat);
+leftEye.position.set(-0.2, 0.1, -0.41);
+const rightEye = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.02), eyeMat);
+rightEye.position.set(0.2, 0.1, -0.41);
+
+const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.02), mouthMat);
+mouth.position.set(0, -0.15, -0.41);
+
+enemyHead.add(leftEye, rightEye, mouth);
+
+// ★ 相手が持つ武器モデルの構築と切り替え管理
+const enemyWeaponGroup = new THREE.Group();
+enemyWeaponGroup.position.set(0.4, 0.6, -0.4); 
+enemyGroup.add(enemyWeaponGroup);
+
+const enemyWeaponMeshes = [];
+
+// 0: ライフル
+const rifleMesh = new THREE.Group();
+rifleMesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 1.0), new THREE.MeshLambertMaterial({ color: 0x222222 })));
+enemyWeaponMeshes.push(rifleMesh);
+
+// 1: ショットガン
+const sgMesh = new THREE.Group();
+sgMesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.15, 0.9), new THREE.MeshLambertMaterial({ color: 0x8B4513 })));
+enemyWeaponMeshes.push(sgMesh);
+
+// 2: スナイパー
+const srMesh = new THREE.Group();
+const srBody = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 1.4), new THREE.MeshLambertMaterial({ color: 0x2f4f4f }));
+const srScope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.4), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+srScope.rotation.x = Math.PI / 2;
+srScope.position.set(0, 0.1, 0);
+srMesh.add(srBody, srScope);
+enemyWeaponMeshes.push(srMesh);
+
+// 3: サブマシンガン
+const smgMesh = new THREE.Group();
+smgMesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.55), new THREE.MeshLambertMaterial({ color: 0x444444 })));
+enemyWeaponMeshes.push(smgMesh);
+
+// 4: ナイフ
+const knifeMesh = new THREE.Group();
+const kBlade = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.35), new THREE.MeshLambertMaterial({ color: 0xcccccc }));
+const kHandle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.06, 0.15), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+kHandle.position.z = 0.2;
+knifeMesh.add(kBlade, kHandle);
+enemyWeaponMeshes.push(knifeMesh);
+
+let currentEnemyWeaponIdx = -1;
+function updateEnemyWeapon(weaponIdx) {
+    if (currentEnemyWeaponIdx === weaponIdx) return;
+    currentEnemyWeaponIdx = weaponIdx;
+    
+    enemyWeaponMeshes.forEach(m => enemyWeaponGroup.remove(m));
+    if (enemyWeaponMeshes[weaponIdx]) {
+        enemyWeaponGroup.add(enemyWeaponMeshes[weaponIdx]);
+    }
+}
 
 enemyGroup.position.set(0, -100, 0);
 
@@ -745,7 +815,6 @@ function shoot() {
     for (let i = 0; i < currentWeapon.pellets; i++) {
         let screenPos = new THREE.Vector2(0, 0);
         
-        // ★ ナイフ以外 かつ スコープを覗いていない場合のみ、設定されたブレ（spread）を適用
         if (currentWeapon.name !== "ナイフ" && !player.isScoping && currentWeapon.spread > 0) {
             screenPos.x += (Math.random() - 0.5) * currentWeapon.spread;
             screenPos.y += (Math.random() - 0.5) * currentWeapon.spread;
@@ -891,7 +960,8 @@ function animate() {
                 z: camera.position.z,
                 yaw: player.yaw,
                 crouch: player.isCrouching,
-                hp: Math.floor(myHP)
+                hp: Math.floor(myHP),
+                weapon: currentWeaponIdx
             });
             
             updateEnemyNameLabel();
