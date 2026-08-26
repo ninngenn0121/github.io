@@ -127,7 +127,6 @@ let myName = "Player";
 let enemyName = "Enemy";
 let isHost = false;
 
-// 名前のローカルストレージ初期化
 const savedName = localStorage.getItem('game_3d_name') || "Player";
 const nameInputEl = document.getElementById('player-name-input');
 nameInputEl.value = savedName;
@@ -140,11 +139,12 @@ nameInputEl.addEventListener('input', (e) => {
 
 let lastDamageTime = performance.now();
 
-// ★ 武器定義（ナイフ追加）
+// ★ 武器定義（サブマシンガンを4キー、ナイフを5キーに変更）
 const WEAPONS = [
     { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 30, pellets: 1, spread: 0, scopeFov: 30 },
     { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 7, headDamage: 14, pellets: 8, spread: 0.08, scopeFov: 50 },
     { name: "スナイパー", maxAmmo: 5, reloadTime: 2500, bodyDamage: 70, headDamage: 100, pellets: 1, spread: 0, scopeFov: 15 },
+    { name: "サブマシンガン", maxAmmo: 40, reloadTime: 1200, bodyDamage: 8, headDamage: 12, pellets: 1, spread: 0.03, scopeFov: 50 },
     { name: "ナイフ", maxAmmo: "∞", reloadTime: 0, bodyDamage: 50, headDamage: 100, pellets: 1, spread: 0, scopeFov: 75, range: 4 }
 ];
 let currentWeaponIdx = 0;
@@ -277,7 +277,6 @@ function copyMyId() {
 
 let moveInput = { x: 0, z: 0 };
 
-// 練習場を開始する関数
 function startPracticeMode(mobileMode) {
     isPracticeMode = true;
     document.getElementById('target-name').innerText = "練習用ターゲット";
@@ -334,10 +333,12 @@ function startGame(mobileMode) {
             if(e.code==='Space') jump();
             if(e.code==='ShiftLeft') crouch(true);
             if(e.code==='KeyR' || e.key==='r' || e.key==='R') reload(); 
+            // ★ サブマシンガン（4キー）とナイフ（5キー）を割り当て
             if(e.code==='Digit1') switchWeapon(0);
             if(e.code==='Digit2') switchWeapon(1);
             if(e.code==='Digit3') switchWeapon(2);
-            if(e.code==='Digit4') switchWeapon(3); // ★ 4キーの追加
+            if(e.code==='Digit4') switchWeapon(3);
+            if(e.code==='Digit5') switchWeapon(4); 
         });
         document.addEventListener('keyup', (e) => {
             if(e.code==='KeyW') keys.w = false;
@@ -507,7 +508,6 @@ gridHelper.material.transparent = true;
 gridHelper.position.y = 0.01;
 scene.add(gridHelper);
 
-// 敵モデル
 const enemyGroup = new THREE.Group();
 scene.add(enemyGroup);
 
@@ -525,7 +525,6 @@ enemyGroup.add(enemyHead);
 
 enemyGroup.position.set(0, -100, 0);
 
-// 練習用ターゲットの作成
 const practiceTargets = [];
 function createPracticeTargets() {
     const targetPositions = [
@@ -537,7 +536,6 @@ function createPracticeTargets() {
     targetPositions.forEach((pos, idx) => {
         const group = new THREE.Group();
         
-        // 標的の円盤
         const outerGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.1, 32);
         const outerMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
         const outer = new THREE.Mesh(outerGeo, outerMat);
@@ -550,7 +548,6 @@ function createPracticeTargets() {
         inner.rotation.x = Math.PI / 2;
         group.add(inner);
 
-        // 支柱
         const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, pos.y, 16);
         const poleMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
         const pole = new THREE.Mesh(poleGeo, poleMat);
@@ -567,7 +564,6 @@ function createPracticeTargets() {
     });
 }
 
-// 弾痕（Bullet Hole）管理
 const bulletHoles = [];
 const MAX_BULLET_HOLES = 50;
 
@@ -576,10 +572,7 @@ function createBulletHole(point, normal) {
     const holeMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
     const hole = new THREE.Mesh(holeGeo, holeMat);
 
-    // 面からわずかに浮かせてチラつき防止
     hole.position.copy(point).add(normal.clone().multiplyScalar(0.01));
-    
-    // 法線方向を向くよう調整
     const lookAtPoint = point.clone().add(normal);
     hole.lookAt(lookAtPoint);
 
@@ -645,7 +638,6 @@ function cycleWeapon() {
     switchWeapon((currentWeaponIdx + 1) % WEAPONS.length);
 }
 
-// ★ ナイフの場合はリロード処理を無効化
 function reload() {
     const currentWeapon = WEAPONS[currentWeaponIdx];
     if (currentWeapon.maxAmmo === "∞" || isReloading || ammoList[currentWeaponIdx] === currentWeapon.maxAmmo) return;
@@ -658,7 +650,6 @@ function reload() {
     }, currentWeapon.reloadTime); 
 }
 
-// ★ ナイフの場合は無限（∞）を表示
 function updateWeaponDisplay() {
     const currentWeapon = WEAPONS[currentWeaponIdx];
     document.getElementById('weapon-display').innerText = `${currentWeapon.name} (${currentWeaponIdx + 1})`;
@@ -679,7 +670,6 @@ function updateWeaponDisplay() {
 
 const raycaster = new THREE.Raycaster();
 
-// ★ 射撃処理にナイフ用の弾数無限・射程距離・マズルフラッシュオフを追加
 function shoot() {
     if(!isPlaying || isReloading) return;
     const currentWeapon = WEAPONS[currentWeaponIdx];
@@ -693,8 +683,17 @@ function shoot() {
     const flash = document.getElementById('flash-overlay');
     const crosshair = document.getElementById('crosshair');
     
+    // ★ 銃火器のみマズルフラッシュと反動を適用
     if (currentWeapon.maxAmmo !== "∞") {
         flash.style.opacity = 0.3;
+        
+        // 武器ごとの反動（リコイル）調整
+        let recoil = 0.015;
+        if (currentWeapon.name === "ショットガン") recoil = 0.03;
+        else if (currentWeapon.name === "スナイパー") recoil = 0.04;
+        else if (currentWeapon.name === "サブマシンガン") recoil = 0.01;
+        
+        player.pitch -= recoil;
     }
     crosshair.classList.add('shooting');
     
@@ -703,9 +702,7 @@ function shoot() {
         crosshair.classList.remove('shooting');
     }, 50);
 
-    player.pitch -= (currentWeaponIdx === 1 ? 0.03 : 0.015);
     camera.rotation.set(player.pitch, player.yaw, 0);
-    
     enemyGroup.updateMatrixWorld(true);
 
     let totalDamage = 0;
@@ -828,7 +825,6 @@ function animate() {
             camera.position.z -= (Math.cos(angle) * dirZ - Math.sin(angle) * dirX) * moveSpeed * delta;
         }
 
-        // ジャンプ時の前進慣性処理
         if (player.forwardBoost > 0) {
             const fwdX = -Math.sin(player.yaw);
             const fwdZ = -Math.cos(player.yaw);
