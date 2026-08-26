@@ -67,7 +67,6 @@
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
         </div>
         
-        <!-- 一人用練習場メニュー -->
         <div class="menu-section" style="border: 1px solid #2ecc71;">
             <p style="margin:4px 0; font-weight:bold; color:#2ecc71;">ソロ練習場 (的当て)</p>
             <button class="btn-practice" onclick="startPracticeMode(false)">練習場へ入る (PC)</button>
@@ -139,17 +138,21 @@ nameInputEl.addEventListener('input', (e) => {
 
 let lastDamageTime = performance.now();
 
-// ★ 武器定義（サブマシンガンを4キー、ナイフを5キーに変更）
+// ★ 武器に isAuto (フルオート) と fireRate (発射間隔ms) を追加
 const WEAPONS = [
-    { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 30, pellets: 1, spread: 0, scopeFov: 30 },
-    { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 7, headDamage: 14, pellets: 8, spread: 0.08, scopeFov: 50 },
-    { name: "スナイパー", maxAmmo: 5, reloadTime: 2500, bodyDamage: 70, headDamage: 100, pellets: 1, spread: 0, scopeFov: 15 },
-    { name: "サブマシンガン", maxAmmo: 40, reloadTime: 1200, bodyDamage: 8, headDamage: 12, pellets: 1, spread: 0.03, scopeFov: 50 },
-    { name: "ナイフ", maxAmmo: "∞", reloadTime: 0, bodyDamage: 50, headDamage: 100, pellets: 1, spread: 0, scopeFov: 75, range: 4 }
+    { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 30, pellets: 1, spread: 0, scopeFov: 30, isAuto: true, fireRate: 100 },
+    { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 7, headDamage: 14, pellets: 8, spread: 0.08, scopeFov: 50, isAuto: false, fireRate: 800 },
+    { name: "スナイパー", maxAmmo: 5, reloadTime: 2500, bodyDamage: 70, headDamage: 100, pellets: 1, spread: 0, scopeFov: 15, isAuto: false, fireRate: 1200 },
+    { name: "サブマシンガン", maxAmmo: 40, reloadTime: 1200, bodyDamage: 8, headDamage: 12, pellets: 1, spread: 0.03, scopeFov: 50, isAuto: true, fireRate: 70 },
+    { name: "ナイフ", maxAmmo: "∞", reloadTime: 0, bodyDamage: 50, headDamage: 100, pellets: 1, spread: 0, scopeFov: 75, range: 4, isAuto: false, fireRate: 400 }
 ];
 let currentWeaponIdx = 0;
 let ammoList = WEAPONS.map(w => w.maxAmmo);
 let isReloading = false;
+
+// ★ フルオート射撃用の状態管理変数
+let isAutoShooting = false;
+let lastShootTime = 0;
 
 let peer = null, conn = null;
 let fixedPeerId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
@@ -333,7 +336,6 @@ function startGame(mobileMode) {
             if(e.code==='Space') jump();
             if(e.code==='ShiftLeft') crouch(true);
             if(e.code==='KeyR' || e.key==='r' || e.key==='R') reload(); 
-            // ★ サブマシンガン（4キー）とナイフ（5キー）を割り当て
             if(e.code==='Digit1') switchWeapon(0);
             if(e.code==='Digit2') switchWeapon(1);
             if(e.code==='Digit3') switchWeapon(2);
@@ -347,11 +349,16 @@ function startGame(mobileMode) {
             if(e.code==='KeyD') keys.d = false;
             if(e.code==='ShiftLeft') crouch(false);
         });
+        
+        // ★ マウス入力をフルオート対応に変更
         document.addEventListener('mousedown', (e) => {
             if(document.pointerLockElement === document.body) {
-                if(e.button === 0) shoot();
+                if(e.button === 0) handleShootStart();
                 if(e.button === 2) toggleScope();
             }
+        });
+        document.addEventListener('mouseup', (e) => {
+            if(e.button === 0) handleShootEnd();
         });
         document.addEventListener('contextmenu', e => e.preventDefault());
     } else {
@@ -374,7 +381,17 @@ function setupPointerControls() {
         });
     };
 
-    bindBtn('btn-shoot', shoot);
+    // ★ 射撃ボタンをフルオート対応に変更
+    const btnShoot = document.getElementById('btn-shoot');
+    btnShoot.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleShootStart();
+    });
+    btnShoot.addEventListener('pointerup', handleShootEnd);
+    btnShoot.addEventListener('pointercancel', handleShootEnd);
+    btnShoot.addEventListener('pointerleave', handleShootEnd);
+
     bindBtn('btn-jump', jump);
     bindBtn('btn-crouch', () => crouch(!player.isCrouching));
     bindBtn('btn-scope', toggleScope);
@@ -483,7 +500,6 @@ camera.rotation.order = 'YXZ';
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
 renderer.domElement.style.position = 'absolute';
 renderer.domElement.style.top = '0';
 renderer.domElement.style.left = '0';
@@ -626,6 +642,7 @@ function toggleScope() {
 
 function switchWeapon(index) {
     if (isReloading || index === currentWeaponIdx) return;
+    isAutoShooting = false; // ★武器切り替え時にフルオート解除
     currentWeaponIdx = index;
     if (player.isScoping) {
         camera.fov = WEAPONS[currentWeaponIdx].scopeFov;
@@ -670,28 +687,55 @@ function updateWeaponDisplay() {
 
 const raycaster = new THREE.Raycaster();
 
+// ★ 射撃入力の開始処理
+function handleShootStart() {
+    if(!isPlaying || isReloading) return;
+    const currentWeapon = WEAPONS[currentWeaponIdx];
+    
+    // フルオート武器ならフラグを立てる
+    if (currentWeapon.isAuto) {
+        isAutoShooting = true;
+    }
+    shoot(); 
+}
+
+// ★ 射撃入力の終了処理
+function handleShootEnd() {
+    isAutoShooting = false;
+}
+
+// 実際の射撃ロジック
 function shoot() {
     if(!isPlaying || isReloading) return;
     const currentWeapon = WEAPONS[currentWeaponIdx];
 
+    // ★ 発射レート（連射速度）の制御
+    const now = performance.now();
+    if (now - lastShootTime < currentWeapon.fireRate - 5) return; 
+
     if (currentWeapon.maxAmmo !== "∞") {
-        if (ammoList[currentWeaponIdx] <= 0) return reload();
+        if (ammoList[currentWeaponIdx] <= 0) {
+            isAutoShooting = false; // 弾切れ暴発防止のためオート射撃解除
+            return reload();
+        }
         ammoList[currentWeaponIdx]--;
     }
+    
+    lastShootTime = performance.now();
     updateWeaponDisplay();
 
     const flash = document.getElementById('flash-overlay');
     const crosshair = document.getElementById('crosshair');
     
-    // ★ 銃火器のみマズルフラッシュと反動を適用
+    // 銃火器のみマズルフラッシュと反動を適用
     if (currentWeapon.maxAmmo !== "∞") {
         flash.style.opacity = 0.3;
         
-        // 武器ごとの反動（リコイル）調整
-        let recoil = 0.015;
+        // ★ 武器ごとの反動（リコイル）調整
+        let recoil = 0.01;
         if (currentWeapon.name === "ショットガン") recoil = 0.03;
         else if (currentWeapon.name === "スナイパー") recoil = 0.04;
-        else if (currentWeapon.name === "サブマシンガン") recoil = 0.01;
+        else if (currentWeapon.name === "サブマシンガン") recoil = 0.005; // フルオート向けにマイルドに
         
         player.pitch -= recoil;
     }
@@ -797,6 +841,11 @@ function animate() {
     prevTime = time;
 
     if (isPlaying) {
+        // ★ フルオート射撃がオンの間、自動で発射関数を呼び続ける
+        if (isAutoShooting) {
+            shoot();
+        }
+
         if (!isPracticeMode && myHP < 100 && myHP > 0) {
             if (time - lastDamageTime >= 6000) {
                 myHP = Math.min(100, myHP + 10 * delta);
