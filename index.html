@@ -138,19 +138,17 @@ nameInputEl.addEventListener('input', (e) => {
 
 let lastDamageTime = performance.now();
 
-// ★ 武器に isAuto (フルオート) と fireRate (発射間隔ms) を追加
+// ★ 武器設定: spread（腰撃ち時のブレ具合）を設定
 const WEAPONS = [
-    { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 30, pellets: 1, spread: 0, scopeFov: 30, isAuto: true, fireRate: 100 },
-    { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 7, headDamage: 14, pellets: 8, spread: 0.08, scopeFov: 50, isAuto: false, fireRate: 800 },
-    { name: "スナイパー", maxAmmo: 5, reloadTime: 2500, bodyDamage: 70, headDamage: 100, pellets: 1, spread: 0, scopeFov: 15, isAuto: false, fireRate: 1200 },
-    { name: "サブマシンガン", maxAmmo: 40, reloadTime: 1200, bodyDamage: 8, headDamage: 12, pellets: 1, spread: 0.03, scopeFov: 50, isAuto: true, fireRate: 70 },
+    { name: "ライフル", maxAmmo: 30, reloadTime: 1500, bodyDamage: 15, headDamage: 30, pellets: 1, spread: 0.05, scopeFov: 30, isAuto: true, fireRate: 100 },
+    { name: "ショットガン", maxAmmo: 8, reloadTime: 2000, bodyDamage: 7, headDamage: 14, pellets: 8, spread: 0.15, scopeFov: 50, isAuto: false, fireRate: 800 },
+    { name: "スナイパー", maxAmmo: 5, reloadTime: 2500, bodyDamage: 70, headDamage: 100, pellets: 1, spread: 0.1, scopeFov: 15, isAuto: false, fireRate: 1200 },
+    { name: "サブマシンガン", maxAmmo: 40, reloadTime: 1200, bodyDamage: 8, headDamage: 12, pellets: 1, spread: 0.08, scopeFov: 50, isAuto: true, fireRate: 70 },
     { name: "ナイフ", maxAmmo: "∞", reloadTime: 0, bodyDamage: 50, headDamage: 100, pellets: 1, spread: 0, scopeFov: 75, range: 4, isAuto: false, fireRate: 400 }
 ];
 let currentWeaponIdx = 0;
 let ammoList = WEAPONS.map(w => w.maxAmmo);
 let isReloading = false;
-
-// ★ フルオート射撃用の状態管理変数
 let isAutoShooting = false;
 let lastShootTime = 0;
 
@@ -350,7 +348,6 @@ function startGame(mobileMode) {
             if(e.code==='ShiftLeft') crouch(false);
         });
         
-        // ★ マウス入力をフルオート対応に変更
         document.addEventListener('mousedown', (e) => {
             if(document.pointerLockElement === document.body) {
                 if(e.button === 0) handleShootStart();
@@ -370,7 +367,6 @@ function startGame(mobileMode) {
     }
 }
 
-// モバイルタッチ操作処理
 function setupPointerControls() {
     const bindBtn = (id, action) => {
         const el = document.getElementById(id);
@@ -381,7 +377,6 @@ function setupPointerControls() {
         });
     };
 
-    // ★ 射撃ボタンをフルオート対応に変更
     const btnShoot = document.getElementById('btn-shoot');
     btnShoot.addEventListener('pointerdown', (e) => {
         e.preventDefault();
@@ -642,7 +637,7 @@ function toggleScope() {
 
 function switchWeapon(index) {
     if (isReloading || index === currentWeaponIdx) return;
-    isAutoShooting = false; // ★武器切り替え時にフルオート解除
+    isAutoShooting = false; 
     currentWeaponIdx = index;
     if (player.isScoping) {
         camera.fov = WEAPONS[currentWeaponIdx].scopeFov;
@@ -687,35 +682,30 @@ function updateWeaponDisplay() {
 
 const raycaster = new THREE.Raycaster();
 
-// ★ 射撃入力の開始処理
 function handleShootStart() {
     if(!isPlaying || isReloading) return;
     const currentWeapon = WEAPONS[currentWeaponIdx];
     
-    // フルオート武器ならフラグを立てる
     if (currentWeapon.isAuto) {
         isAutoShooting = true;
     }
     shoot(); 
 }
 
-// ★ 射撃入力の終了処理
 function handleShootEnd() {
     isAutoShooting = false;
 }
 
-// 実際の射撃ロジック
 function shoot() {
     if(!isPlaying || isReloading) return;
     const currentWeapon = WEAPONS[currentWeaponIdx];
 
-    // ★ 発射レート（連射速度）の制御
     const now = performance.now();
     if (now - lastShootTime < currentWeapon.fireRate - 5) return; 
 
     if (currentWeapon.maxAmmo !== "∞") {
         if (ammoList[currentWeaponIdx] <= 0) {
-            isAutoShooting = false; // 弾切れ暴発防止のためオート射撃解除
+            isAutoShooting = false; 
             return reload();
         }
         ammoList[currentWeaponIdx]--;
@@ -727,15 +717,13 @@ function shoot() {
     const flash = document.getElementById('flash-overlay');
     const crosshair = document.getElementById('crosshair');
     
-    // 銃火器のみマズルフラッシュと反動を適用
     if (currentWeapon.maxAmmo !== "∞") {
         flash.style.opacity = 0.3;
         
-        // ★ 武器ごとの反動（リコイル）調整
         let recoil = 0.01;
         if (currentWeapon.name === "ショットガン") recoil = 0.03;
         else if (currentWeapon.name === "スナイパー") recoil = 0.04;
-        else if (currentWeapon.name === "サブマシンガン") recoil = 0.005; // フルオート向けにマイルドに
+        else if (currentWeapon.name === "サブマシンガン") recoil = 0.005; 
         
         player.pitch -= recoil;
     }
@@ -756,7 +744,9 @@ function shoot() {
 
     for (let i = 0; i < currentWeapon.pellets; i++) {
         let screenPos = new THREE.Vector2(0, 0);
-        if (currentWeapon.spread > 0) {
+        
+        // ★ ナイフ以外 かつ スコープを覗いていない場合のみ、設定されたブレ（spread）を適用
+        if (currentWeapon.name !== "ナイフ" && !player.isScoping && currentWeapon.spread > 0) {
             screenPos.x += (Math.random() - 0.5) * currentWeapon.spread;
             screenPos.y += (Math.random() - 0.5) * currentWeapon.spread;
         }
@@ -841,7 +831,6 @@ function animate() {
     prevTime = time;
 
     if (isPlaying) {
-        // ★ フルオート射撃がオンの間、自動で発射関数を呼び続ける
         if (isAutoShooting) {
             shoot();
         }
