@@ -147,7 +147,8 @@ const WEAPONS = [
     { name: "サブマシンガン", maxAmmo: 40, reloadTime: 1200, bodyDamage: 8, headDamage: 12, pellets: 1, spread: 0.08, scopeFov: 50, isAuto: true, fireRate: 70 },
     { name: "セミオート", maxAmmo: 15, reloadTime: 1400, bodyDamage: 32, headDamage: 64, pellets: 1, spread: 0.02, scopeFov: 35, isAuto: false, fireRate: 180 },
     { name: "FAMAS (3点バースト)", maxAmmo: 25, reloadTime: 1300, bodyDamage: 18, headDamage: 36, pellets: 1, spread: 0.05, scopeFov: 40, isAuto: false, isBurst: true, burstCount: 3, burstDelay: 70, fireRate: 450 },
-    { name: "ナイフ", maxAmmo: "∞", reloadTime: 0, bodyDamage: 50, headDamage: 100, pellets: 1, spread: 0, scopeFov: 75, range: 4, isAuto: false, fireRate: 400 }
+    { name: "ナイフ", maxAmmo: "∞", reloadTime: 0, bodyDamage: 50, headDamage: 100, pellets: 1, spread: 0, scopeFov: 75, range: 4, isAuto: false, fireRate: 400 },
+    { name: "Mk48 (LMG)", maxAmmo: 100, reloadTime: 3800, bodyDamage: 22, headDamage: 44, pellets: 1, spread: 0.09, scopeFov: 50, isAuto: true, fireRate: 80 }
 ];
 let currentWeaponIdx = 0;
 let ammoList = WEAPONS.map(w => w.maxAmmo);
@@ -309,7 +310,6 @@ function sendData(data) {
     }
 }
 
-// 50msごとに自分の状態を送信（パケット詰まり防止）
 setInterval(() => {
     if (isPlaying && !isPracticeMode) {
         const currentGround = player.isCrouching ? player.crouchHeight : player.height;
@@ -397,6 +397,7 @@ function startGame(mobileMode) {
             if(e.code==='Digit5') switchWeapon(4);
             if(e.code==='Digit6') switchWeapon(5);
             if(e.code==='Digit7') switchWeapon(6);
+            if(e.code==='Digit8') switchWeapon(7);
         });
         document.addEventListener('keyup', (e) => {
             if(e.code==='KeyW') keys.w = false;
@@ -650,6 +651,13 @@ kHandle.position.z = 0.2;
 knifeMesh.add(kBlade, kHandle);
 enemyWeaponMeshes.push(knifeMesh);
 
+const mk48Mesh = new THREE.Group();
+const mk48Body = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 1.2), new THREE.MeshLambertMaterial({ color: 0x4a4a38 }));
+const mk48BoxMag = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.28), new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
+mk48BoxMag.position.set(0, -0.15, 0.1);
+mk48Mesh.add(mk48Body, mk48BoxMag);
+enemyWeaponMeshes.push(mk48Mesh);
+
 let currentEnemyWeaponIdx = -1;
 function updateEnemyWeapon(weaponIdx) {
     if (currentEnemyWeaponIdx === weaponIdx) return;
@@ -880,6 +888,7 @@ function fireSingleBullet() {
         else if (currentWeapon.name === "サブマシンガン") recoil = 0.004;
         else if (currentWeapon.name === "セミオート") recoil = 0.015;
         else if (currentWeapon.name.includes("FAMAS")) recoil = 0.001;
+        else if (currentWeapon.name.includes("Mk48")) recoil = 0.012;
         
         player.pitch -= recoil; 
         player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
