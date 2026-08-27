@@ -125,6 +125,7 @@ let enemyHP = 100;
 let myName = "Player";
 let enemyName = "Enemy";
 let isHost = false;
+let enemyTargetPos = new THREE.Vector3(0, -100, 0); // 敵の位置補間用
 
 const savedName = localStorage.getItem('game_3d_name') || "Player";
 const nameInputEl = document.getElementById('player-name-input');
@@ -211,7 +212,8 @@ function setupConnection() {
             enableStartGame();
         }
         else if (data.type === 'state' && isPlaying && !isPracticeMode) {
-            enemyGroup.position.set(data.x, data.y, data.z);
+            // Lerp用に目標位置を保存
+            enemyTargetPos.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
             
             if (data.weapon !== undefined) {
@@ -279,6 +281,24 @@ function sendData(data) {
     }
 }
 
+// 50msごとに自分の状態を送信（パケット詰まり防止）
+setInterval(() => {
+    if (isPlaying && !isPracticeMode) {
+        const currentGround = player.isCrouching ? player.crouchHeight : player.height;
+        const modelY = camera.position.y - currentGround;
+        sendData({
+            type: 'state',
+            x: camera.position.x,
+            y: modelY,
+            z: camera.position.z,
+            yaw: player.yaw,
+            crouch: player.isCrouching,
+            hp: Math.floor(myHP),
+            weapon: currentWeaponIdx
+        });
+    }
+}, 50);
+
 function copyMyId() {
     navigator.clipboard.writeText(fixedPeerId).then(() => alert("IDをコピーしました！"));
 }
@@ -308,6 +328,7 @@ function startGame(mobileMode) {
         player.yaw = 0;
     }
     camera.rotation.set(player.pitch, player.yaw, 0);
+    enemyTargetPos.copy(enemyGroup.position);
 
     isPlaying = true;
     updateWeaponDisplay();
@@ -839,9 +860,9 @@ function fireSingleBullet() {
         else if (currentWeapon.name === "スナイパー") recoil = 0.035;
         else if (currentWeapon.name === "サブマシンガン") recoil = 0.004;
         else if (currentWeapon.name === "セミオート") recoil = 0.015;
-        else if (currentWeapon.name.includes("FAMAS")) recoil = 0.001; // 下降量を大幅に小さく調整
+        else if (currentWeapon.name.includes("FAMAS")) recoil = 0.001;
         
-        player.pitch -= recoil; // 元の向き（下）に戻し、FAMASのみ引き下げ幅を極小化
+        player.pitch -= recoil; 
         player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
     }
     crosshair.classList.add('shooting');
@@ -1022,18 +1043,8 @@ function animate() {
         }
 
         if (!isPracticeMode) {
-            const modelY = camera.position.y - currentGround; 
-            sendData({
-                type: 'state',
-                x: camera.position.x,
-                y: modelY, 
-                z: camera.position.z,
-                yaw: player.yaw,
-                crouch: player.isCrouching,
-                hp: Math.floor(myHP),
-                weapon: currentWeaponIdx
-            });
-            
+            // Lerpで敵を滑らかに移動させる
+            enemyGroup.position.lerp(enemyTargetPos, 0.2);
             updateEnemyNameLabel();
         }
     }
