@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>1vs1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
     <style>
         * { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
@@ -77,6 +77,7 @@
             <p style="margin:4px 0;">あなたのID</p>
             <h3 id="my-id" style="color: #f1c40f; margin:4px 0;">生成中...</h3>
             <button onclick="copyMyId()">IDをコピー</button>
+            <button onclick="resetMyId()" style="background:#e67e22; font-size:12px; padding:6px 10px;">ID再生成</button>
         </div>
         <div class="menu-section">
             <p style="margin:4px 0;">対戦相手のIDを入力</p>
@@ -125,7 +126,7 @@ let enemyHP = 100;
 let myName = "Player";
 let enemyName = "Enemy";
 let isHost = false;
-let enemyTargetPos = new THREE.Vector3(0, -100, 0); // 敵の位置補間用
+let enemyTargetPos = new THREE.Vector3(0, -100, 0);
 
 const savedName = localStorage.getItem('game_3d_name') || "Player";
 const nameInputEl = document.getElementById('player-name-input');
@@ -156,24 +157,52 @@ let isBursting = false;
 let lastShootTime = 0;
 
 let peer = null, conn = null;
-let fixedPeerId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
-localStorage.setItem('game_3d_id', fixedPeerId);
+let currentMyId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
 
-peer = new Peer(fixedPeerId);
+function initPeer(idToInit) {
+    if (peer) {
+        try { peer.destroy(); } catch(e){}
+    }
+    document.getElementById('my-id').innerText = "接続中...";
+    
+    peer = new Peer(idToInit);
 
-peer.on('open', id => { document.getElementById('my-id').innerText = id; });
-peer.on('error', err => { updateStatus("通信エラー: " + err.type, "error"); });
-peer.on('connection', connection => {
-    if(conn && conn.open) { connection.close(); return; }
-    conn = connection;
-    isHost = true;
-    setupConnection();
-});
+    peer.on('open', id => { 
+        currentMyId = id;
+        localStorage.setItem('game_3d_id', id);
+        document.getElementById('my-id').innerText = id; 
+    });
+
+    peer.on('error', err => { 
+        if (err.type === 'unavailable-id') {
+            document.getElementById('my-id').innerText = "ID重複のため再生成中...";
+            const newId = 'user-' + Math.random().toString(36).substr(2, 6);
+            setTimeout(() => initPeer(newId), 1000);
+        } else {
+            document.getElementById('my-id').innerText = "エラー: " + err.type;
+            updateStatus("PeerJSエラー: " + err.type, "error"); 
+        }
+    });
+
+    peer.on('connection', connection => {
+        if(conn && conn.open) { connection.close(); return; }
+        conn = connection;
+        isHost = true;
+        setupConnection();
+    });
+}
+
+initPeer(currentMyId);
+
+function resetMyId() {
+    const newId = 'user-' + Math.random().toString(36).substr(2, 6);
+    initPeer(newId);
+}
 
 function connectToPeer() {
     const targetId = document.getElementById('peer-id-input').value.trim();
     if(!targetId) return alert("相手のIDを入力してください！");
-    if(targetId === fixedPeerId) return alert("自分のIDです！");
+    if(targetId === currentMyId) return alert("自分のIDです！");
     
     updateStatus("相手に接続要求を送信中...", "wait");
     document.getElementById('btn-connect').disabled = true;
@@ -194,7 +223,7 @@ function setupConnection() {
         updateStatus("通信確立！ハンドシェイク中...", "wait");
         myName = nameInputEl.value.trim() || "Player";
         localStorage.setItem('game_3d_name', myName);
-        sendData({ type: 'init', name: myName, id: fixedPeerId });
+        sendData({ type: 'init', name: myName, id: currentMyId });
     });
 
     conn.on('data', data => {
@@ -212,7 +241,6 @@ function setupConnection() {
             enableStartGame();
         }
         else if (data.type === 'state' && isPlaying && !isPracticeMode) {
-            // Lerp用に目標位置を保存
             enemyTargetPos.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
             
@@ -300,7 +328,7 @@ setInterval(() => {
 }, 50);
 
 function copyMyId() {
-    navigator.clipboard.writeText(fixedPeerId).then(() => alert("IDをコピーしました！"));
+    navigator.clipboard.writeText(currentMyId).then(() => alert("IDをコピーしました！"));
 }
 
 let moveInput = { x: 0, z: 0 };
@@ -565,7 +593,6 @@ const enemyHead = new THREE.Mesh(headGeom, headMat);
 enemyHead.position.y = 1.9;
 enemyGroup.add(enemyHead);
 
-// 敵キャラの顔
 const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
 const mouthMat = new THREE.MeshBasicMaterial({ color: 0xc0392b });
 
@@ -579,24 +606,20 @@ mouth.position.set(0, -0.15, -0.41);
 
 enemyHead.add(leftEye, rightEye, mouth);
 
-// 相手の装備武器モデル
 const enemyWeaponGroup = new THREE.Group();
 enemyWeaponGroup.position.set(0.4, 0.7, -0.95); 
 enemyGroup.add(enemyWeaponGroup);
 
 const enemyWeaponMeshes = [];
 
-// 0: ライフル
 const rifleMesh = new THREE.Group();
 rifleMesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 1.0), new THREE.MeshLambertMaterial({ color: 0x222222 })));
 enemyWeaponMeshes.push(rifleMesh);
 
-// 1: ショットガン
 const sgMesh = new THREE.Group();
 sgMesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.15, 0.9), new THREE.MeshLambertMaterial({ color: 0x8B4513 })));
 enemyWeaponMeshes.push(sgMesh);
 
-// 2: スナイパー
 const srMesh = new THREE.Group();
 const srBody = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 1.4), new THREE.MeshLambertMaterial({ color: 0x2f4f4f }));
 const srScope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.4), new THREE.MeshLambertMaterial({ color: 0x111111 }));
@@ -605,17 +628,14 @@ srScope.position.set(0, 0.1, 0);
 srMesh.add(srBody, srScope);
 enemyWeaponMeshes.push(srMesh);
 
-// 3: サブマシンガン
 const smgMesh = new THREE.Group();
 smgMesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.55), new THREE.MeshLambertMaterial({ color: 0x444444 })));
 enemyWeaponMeshes.push(smgMesh);
 
-// 4: セミオート
 const semiMesh = new THREE.Group();
 semiMesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.11, 1.1), new THREE.MeshLambertMaterial({ color: 0x111111 })));
 enemyWeaponMeshes.push(semiMesh);
 
-// 5: FAMAS
 const famasMesh = new THREE.Group();
 const famasBody = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.8), new THREE.MeshLambertMaterial({ color: 0x333333 }));
 const famasHandle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.4), new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
@@ -623,7 +643,6 @@ famasHandle.position.set(0, 0.1, -0.05);
 famasMesh.add(famasBody, famasHandle);
 enemyWeaponMeshes.push(famasMesh);
 
-// 6: ナイフ
 const knifeMesh = new THREE.Group();
 const kBlade = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.35), new THREE.MeshLambertMaterial({ color: 0xcccccc }));
 const kHandle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.06, 0.15), new THREE.MeshLambertMaterial({ color: 0x222222 }));
@@ -1043,7 +1062,6 @@ function animate() {
         }
 
         if (!isPracticeMode) {
-            // Lerpで敵を滑らかに移動させる
             enemyGroup.position.lerp(enemyTargetPos, 0.2);
             updateEnemyNameLabel();
         }
