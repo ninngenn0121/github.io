@@ -69,6 +69,12 @@
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
         </div>
 
+        <!-- 追加: 感度調整スライダー -->
+        <div class="menu-section">
+            <p style="margin:4px 0;">カメラ感度: <span id="sensitivity-value">1.0</span></p>
+            <input type="range" id="sensitivity-slider" min="0.1" max="5.0" step="0.1" value="1.0" style="width: 80%;">
+        </div>
+
         <!-- マッチング用のUIを追加 -->
         <div class="menu-section" style="border: 1px solid #3498db;">
             <p style="margin:4px 0; font-weight:bold; color:#3498db;">オンライン対戦</p>
@@ -137,6 +143,9 @@ let enemyName = "Enemy";
 let isHost = false;
 let enemyTargetPos = new THREE.Vector3(0, -100, 0);
 
+// 追加: 感度変数の定義とローカルストレージからの読み込み
+let sensitivity = parseFloat(localStorage.getItem('game_3d_sensitivity')) || 1.0;
+
 const savedName = localStorage.getItem('game_3d_name') || "Player";
 const nameInputEl = document.getElementById('player-name-input');
 nameInputEl.value = savedName;
@@ -146,6 +155,19 @@ nameInputEl.addEventListener('input', (e) => {
     const val = e.target.value.trim() || "Player";
     localStorage.setItem('game_3d_name', val);
 });
+
+// 追加: スライダーの初期化とイベント設定
+const sensSlider = document.getElementById('sensitivity-slider');
+const sensValue = document.getElementById('sensitivity-value');
+if (sensSlider) {
+    sensSlider.value = sensitivity;
+    sensValue.innerText = sensitivity.toFixed(1);
+    sensSlider.addEventListener('input', (e) => {
+        sensitivity = parseFloat(e.target.value);
+        sensValue.innerText = sensitivity.toFixed(1);
+        localStorage.setItem('game_3d_sensitivity', sensitivity);
+    });
+}
 
 let lastDamageTime = performance.now();
 
@@ -384,9 +406,10 @@ function startGame(mobileMode) {
 
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
-                player.yaw -= e.movementX * 0.002;
+                // 変更: pc用感度適用
+                player.yaw -= e.movementX * 0.002 * sensitivity;
                 
-                const pitchDelta = e.movementY * 0.002;
+                const pitchDelta = e.movementY * 0.002 * sensitivity;
                 player.pitch += INVERT_Y ? pitchDelta : -pitchDelta;
                 player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
                 
@@ -482,9 +505,10 @@ function setupPointerControls() {
             const dx = e.clientX - lastLookX;
             const dy = e.clientY - lastLookY;
             
-            player.yaw -= dx * 0.004;
+            // 変更: スマホ用感度適用
+            player.yaw -= dx * 0.004 * sensitivity;
             
-            const pitchDelta = dy * 0.004;
+            const pitchDelta = dy * 0.004 * sensitivity;
             player.pitch += INVERT_Y ? pitchDelta : -pitchDelta;
             player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
             
