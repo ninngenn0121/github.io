@@ -67,6 +67,24 @@
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
         </div>
         
+        <!-- マッチング予約システム -->
+        <div class="menu-section" style="border: 1px solid #3498db;">
+            <p style="margin:4px 0; font-weight:bold; color:#3498db;">予約マッチング</p>
+            <ol id="queue-list" style="text-align: left; padding-left: 25px; margin: 8px 0;"></ol>
+            
+            <div id="action-btns">
+                <button onclick="startMatching()">マッチング</button>
+                <button onclick="joinQueue()" style="background:#8e44ad;">対戦相手を待つ</button>
+            </div>
+
+            <p id="match-status" class="status-text text-wait" style="min-height: 1.5em; margin: 8px 0; font-size: 13px;"></p>
+            
+            <div id="confirm-btns" style="display: none;">
+                <button onclick="acceptMatch()" style="background:#2ecc71;">はい</button>
+                <button onclick="declineMatch()" style="background:#e74c3c;">いいえ</button>
+            </div>
+        </div>
+
         <div class="menu-section" style="border: 1px solid #2ecc71;">
             <p style="margin:4px 0; font-weight:bold; color:#2ecc71;">ソロ練習場 (的当て)</p>
             <button class="btn-practice" onclick="startPracticeMode(false)">練習場へ入る (PC)</button>
@@ -157,6 +175,79 @@ let isAutoShooting = false;
 let isBursting = false;
 let lastShootTime = 0;
 
+/* ==================== マッチング予約機能 Logic ==================== */
+let matchQueue = [
+    { name: "Aさん" },
+    { name: "Bさん" },
+    { name: "Cさん" }
+];
+let currentCandidate = null;
+let newPlayerCount = 4;
+
+function updateQueueDisplay() {
+    const listEl = document.getElementById("queue-list");
+    if (matchQueue.length === 0) {
+        listEl.innerHTML = "<li>待ちプレイヤーはいません</li>";
+        return;
+    }
+    listEl.innerHTML = matchQueue.map(player => `<li>${player.name}</li>`).join("");
+}
+
+function startMatching() {
+    const statusEl = document.getElementById("match-status");
+    if (matchQueue.length === 0) {
+        statusEl.textContent = "予約待ちのプレイヤーがいません！";
+        return;
+    }
+
+    currentCandidate = matchQueue.shift();
+    updateQueueDisplay();
+
+    statusEl.textContent = `${currentCandidate.name}とマッチングしました！この人と戦いますか？`;
+    showConfirmUI(true);
+}
+
+function acceptMatch() {
+    const statusEl = document.getElementById("match-status");
+    statusEl.textContent = `【対戦確定】${currentCandidate.name}と戦います！`;
+    
+    // 対戦相手名をセットしてスタートボタンを有効化
+    enemyName = currentCandidate.name;
+    document.getElementById('target-name').innerText = enemyName;
+    enableStartGame();
+
+    currentCandidate = null;
+    showConfirmUI(false);
+}
+
+function declineMatch() {
+    const statusEl = document.getElementById("match-status");
+    matchQueue.push(currentCandidate);
+    updateQueueDisplay();
+
+    statusEl.textContent = `キャンセルしました。${currentCandidate.name}は最後尾に移動しました。`;
+    currentCandidate = null;
+    showConfirmUI(false);
+}
+
+function joinQueue() {
+    const newName = String.fromCharCode(64 + newPlayerCount) + "さん";
+    newPlayerCount++;
+    matchQueue.push({ name: newName });
+    updateQueueDisplay();
+
+    document.getElementById("match-status").textContent = `${newName}が待ち列に並びました！`;
+}
+
+function showConfirmUI(isConfirming) {
+    document.getElementById("confirm-btns").style.display = isConfirming ? "block" : "none";
+    document.getElementById("action-btns").style.display = isConfirming ? "none" : "block";
+}
+
+// 初期実行
+updateQueueDisplay();
+
+/* ==================== Network / PeerJS ==================== */
 let peer = null, conn = null;
 let currentMyId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
 
