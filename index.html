@@ -6,6 +6,8 @@
     <title>1vs1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+    <!-- Socket.IOのクライアントライブラリを読み込み -->
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         * { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
@@ -66,25 +68,14 @@
             <p style="margin:4px 0;">プレイヤー名</p>
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
         </div>
-        
-        <!-- マッチング予約システム -->
+
+        <!-- マッチング用のUIを追加 -->
         <div class="menu-section" style="border: 1px solid #3498db;">
-            <p style="margin:4px 0; font-weight:bold; color:#3498db;">予約マッチング</p>
-            <ol id="queue-list" style="text-align: left; padding-left: 25px; margin: 8px 0;"></ol>
-            
-            <div id="action-btns">
-                <button onclick="startMatching()">マッチング</button>
-                <button onclick="joinQueue()" style="background:#8e44ad;">対戦相手を待つ</button>
-            </div>
-
-            <p id="match-status" class="status-text text-wait" style="min-height: 1.5em; margin: 8px 0; font-size: 13px;"></p>
-            
-            <div id="confirm-btns" style="display: none;">
-                <button onclick="acceptMatch()" style="background:#2ecc71;">はい</button>
-                <button onclick="declineMatch()" style="background:#e74c3c;">いいえ</button>
-            </div>
+            <p style="margin:4px 0; font-weight:bold; color:#3498db;">オンライン対戦</p>
+            <button id="btn-match" onclick="startMatchmaking()" style="width:90%;">ランダムマッチを探す</button>
+            <div id="match-status" class="status-text text-wait" style="margin-top:8px;"></div>
         </div>
-
+        
         <div class="menu-section" style="border: 1px solid #2ecc71;">
             <p style="margin:4px 0; font-weight:bold; color:#2ecc71;">ソロ練習場 (的当て)</p>
             <button class="btn-practice" onclick="startPracticeMode(false)">練習場へ入る (PC)</button>
@@ -98,7 +89,7 @@
             <button onclick="resetMyId()" style="background:#e67e22; font-size:12px; padding:6px 10px;">ID再生成</button>
         </div>
         <div class="menu-section">
-            <p style="margin:4px 0;">対戦相手のIDを入力</p>
+            <p style="margin:4px 0;">フレンド対戦 (ID入力)</p>
             <input type="text" id="peer-id-input" placeholder="例: user-xxxxxx">
             <button id="btn-connect" onclick="connectToPeer()">接続する</button>
             <div id="connection-status" class="status-text text-wait">接続待機中...</div>
@@ -175,79 +166,6 @@ let isAutoShooting = false;
 let isBursting = false;
 let lastShootTime = 0;
 
-/* ==================== マッチング予約機能 Logic ==================== */
-let matchQueue = [
-    { name: "Aさん" },
-    { name: "Bさん" },
-    { name: "Cさん" }
-];
-let currentCandidate = null;
-let newPlayerCount = 4;
-
-function updateQueueDisplay() {
-    const listEl = document.getElementById("queue-list");
-    if (matchQueue.length === 0) {
-        listEl.innerHTML = "<li>待ちプレイヤーはいません</li>";
-        return;
-    }
-    listEl.innerHTML = matchQueue.map(player => `<li>${player.name}</li>`).join("");
-}
-
-function startMatching() {
-    const statusEl = document.getElementById("match-status");
-    if (matchQueue.length === 0) {
-        statusEl.textContent = "予約待ちのプレイヤーがいません！";
-        return;
-    }
-
-    currentCandidate = matchQueue.shift();
-    updateQueueDisplay();
-
-    statusEl.textContent = `${currentCandidate.name}とマッチングしました！この人と戦いますか？`;
-    showConfirmUI(true);
-}
-
-function acceptMatch() {
-    const statusEl = document.getElementById("match-status");
-    statusEl.textContent = `【対戦確定】${currentCandidate.name}と戦います！`;
-    
-    // 対戦相手名をセットしてスタートボタンを有効化
-    enemyName = currentCandidate.name;
-    document.getElementById('target-name').innerText = enemyName;
-    enableStartGame();
-
-    currentCandidate = null;
-    showConfirmUI(false);
-}
-
-function declineMatch() {
-    const statusEl = document.getElementById("match-status");
-    matchQueue.push(currentCandidate);
-    updateQueueDisplay();
-
-    statusEl.textContent = `キャンセルしました。${currentCandidate.name}は最後尾に移動しました。`;
-    currentCandidate = null;
-    showConfirmUI(false);
-}
-
-function joinQueue() {
-    const newName = String.fromCharCode(64 + newPlayerCount) + "さん";
-    newPlayerCount++;
-    matchQueue.push({ name: newName });
-    updateQueueDisplay();
-
-    document.getElementById("match-status").textContent = `${newName}が待ち列に並びました！`;
-}
-
-function showConfirmUI(isConfirming) {
-    document.getElementById("confirm-btns").style.display = isConfirming ? "block" : "none";
-    document.getElementById("action-btns").style.display = isConfirming ? "none" : "block";
-}
-
-// 初期実行
-updateQueueDisplay();
-
-/* ==================== Network / PeerJS ==================== */
 let peer = null, conn = null;
 let currentMyId = localStorage.getItem('game_3d_id') || ('user-' + Math.random().toString(36).substr(2, 6));
 
@@ -313,6 +231,8 @@ function updateStatus(text, type) {
 function setupConnection() {
     conn.on('open', () => {
         updateStatus("通信確立！ハンドシェイク中...", "wait");
+        document.getElementById('match-status').innerText = "接続完了！";
+        
         myName = nameInputEl.value.trim() || "Player";
         localStorage.setItem('game_3d_name', myName);
         sendData({ type: 'init', name: myName, id: currentMyId });
@@ -1177,6 +1097,45 @@ window.addEventListener('resize', () => {
 });
 
 animate();
+
+// --- ここから下が今回追加したマッチング（Socket.IO）用の処理 ---
+const socket = io(); // サーバーへ接続
+
+function startMatchmaking() {
+    const btn = document.getElementById('btn-match');
+    const status = document.getElementById('match-status');
+    
+    if(btn) {
+        btn.disabled = true;
+        btn.innerText = "検索中...";
+    }
+    status.innerText = "対戦相手を探しています...";
+    status.className = "status-text text-wait";
+    
+    // 自分のPeerJS IDをサーバーに送って待機列に入る
+    socket.emit('join_matchmaking', currentMyId);
+}
+
+socket.on('match_found', (data) => {
+    const btn = document.getElementById('btn-match');
+    const status = document.getElementById('match-status');
+    
+    if(btn) {
+        btn.innerText = "マッチング成功！";
+    }
+    status.innerText = "マッチングしました！接続中...";
+    status.className = "status-text text-success";
+    
+    if (!data.isHost) {
+        // 後から来たプレイヤーが、待機していたプレイヤーのPeerJSに自動で接続しにいく
+        document.getElementById('peer-id-input').value = data.hostPeerId;
+        connectToPeer(); // 既存のP2P接続関数を呼び出す
+    } else {
+        // 先に待機していた側はホスト（受ける側）になるため、相手からの接続を待つ
+        status.innerText = "相手からの通信を待っています...";
+        status.className = "status-text text-wait";
+    }
+});
 </script>
 </body>
 </html>
