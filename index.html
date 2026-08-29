@@ -12,7 +12,7 @@
         * { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
         
-        /* ロビーメニュー */
+        /* ロビーメニュー (スクロール修正済み) */
         #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; z-index: 1000; overflow-y: auto; padding: 40px 20px; touch-action: auto; }
         .menu-box { background: #222; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #555; max-width: 400px; width: 100%; }
         .menu-section { margin-bottom: 12px; padding: 10px; background: #333; border-radius: 8px; }
@@ -80,7 +80,6 @@
             <div id="match-status" class="status-text text-wait" style="margin-top:8px;"></div>
         </div>
 
-        <!-- AI対戦用のUIを追加 -->
         <div class="menu-section" style="border: 1px solid #9b59b6;">
             <p style="margin:4px 0; font-weight:bold; color:#9b59b6;">AI対戦（Bot）</p>
             <button class="btn-practice" style="background:#9b59b6;" onclick="startBotMode(false)">AIと戦う (PC)</button>
@@ -143,6 +142,10 @@ let isPlaying = false;
 let isPracticeMode = false;
 let isBotMode = false; // Botモード判定用
 let botShootTimer = 0; // Botの射撃タイマー
+let botVelocityY = 0;       // Botのジャンプ速度
+let isBotGrounded = true;   // Botの接地判定
+let botNextStrafeTime = 0;  // Botの左右移動切り替えタイマー
+let botStrafeDir = 1;       // Botの左右移動方向
 let myHP = 100;
 let enemyHP = 100;
 let myName = "Player";
@@ -379,11 +382,10 @@ function startPracticeMode(mobileMode) {
     startGame(mobileMode);
 }
 
-// Botモード開始関数
 function startBotMode(mobileMode) {
     isBotMode = true;
     isPracticeMode = false;
-    enemyName = "AI Bot";
+    enemyName = "AI Bot (最強)";
     document.getElementById('target-name').innerText = enemyName;
     enemyHP = 100;
     myHP = 100;
@@ -732,7 +734,7 @@ function createPracticeTargets() {
         { x: 5, y: 1.8, z: -2 }
     ];
 
-    targetPositions.forEach((pos, idx) => {
+    targetPositions.forEach((pos) => {
         const group = new THREE.Group();
         
         const outerGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.1, 32);
@@ -757,10 +759,9 @@ function createPracticeTargets() {
         group.position.set(pos.x, pos.y, pos.z);
         scene.add(group);
         
-        // 動く的用のパラメータを付与
         group.userData = {
             startX: pos.x,
-            speed: 0.02 + Math.random() * 0.03, // 個別に速度をランダム化
+            speed: 0.02 + Math.random() * 0.03,
             dir: 1
         };
         
@@ -1015,17 +1016,15 @@ function fireSingleBullet() {
         setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
         
         if (isBotMode) {
-            // Botモード時のダメージ処理
             enemyHP -= totalDamage;
             if (enemyHP <= 0) {
                 isPlaying = false;
                 setTimeout(() => {
-                    alert("YOU WIN! AIを倒したにゃ！");
+                    alert("YOU WIN! 覚醒したAIを倒したにゃ！すさまじい腕前だにゃ！");
                     location.reload();
                 }, 100);
             }
         } else {
-            // オンライン対戦時
             sendData({ type: 'hit', damage: totalDamage });
         }
     }
@@ -1145,7 +1144,6 @@ function animate() {
         }
 
         if (isPracticeMode) {
-            // 動く的の処理
             practiceTargets.forEach(mesh => {
                 const group = mesh.userData.parentGroup;
                 if (group && group.userData.speed) {
@@ -1156,9 +1154,10 @@ function animate() {
                 }
             });
         } else if (isBotMode) {
-            // AI（Bot）の動作
+            // AI（Bot）の動作（超絶強化版）
             if (myHP > 0 && enemyHP > 0) {
-                const botSpeed = 3 * delta;
+                // 1. 移動速度をプレイヤーと同じに設定
+                const botSpeed = player.speed * delta;
                 const dx = camera.position.x - enemyGroup.position.x;
                 const dz = camera.position.z - enemyGroup.position.z;
                 const dist = Math.hypot(dx, dz);
@@ -1166,30 +1165,56 @@ function animate() {
                 
                 enemyGroup.rotation.y = angle;
 
-                if (dist > 5) {
+                // 2. ランダムなタイミングで左右の移動方向を切り替える
+                if (time > botNextStrafeTime) {
+                    botStrafeDir = Math.random() > 0.5 ? 1 : -1;
+                    botNextStrafeTime = time + 400 + Math.random() * 800; // 0.4〜1.2秒で切り替え
+                }
+
+                if (dist > 8) {
+                    // 遠い場合はまっすぐ距離を詰める
                     enemyGroup.position.x += Math.sin(angle) * botSpeed;
                     enemyGroup.position.z += Math.cos(angle) * botSpeed;
                 } else {
-                    enemyGroup.position.x += Math.cos(angle) * (botSpeed * 0.5) * Math.sin(time * 0.002);
+                    // 近い場合はプレイヤーの周りを高速で左右に避けながら（ストレイフ）少しずつ前進
+                    enemyGroup.position.x += Math.cos(angle) * botSpeed * botStrafeDir * 0.8;
+                    enemyGroup.position.z -= Math.sin(angle) * botSpeed * botStrafeDir * 0.8;
+                    enemyGroup.position.x += Math.sin(angle) * botSpeed * 0.2;
+                    enemyGroup.position.z += Math.cos(angle) * botSpeed * 0.2;
                 }
                 
-                enemyGroup.position.y = 0;
+                // 3. ジャンプ処理（走りながらピョンピョン跳ねる）
+                if (isBotGrounded && Math.random() < 0.03) { // 3%の高確率でジャンプ
+                    botVelocityY = player.jumpForce;
+                    isBotGrounded = false;
+                }
+                
+                // 4. 重力の適用と地面の判定
+                botVelocityY -= player.gravity * delta;
+                enemyGroup.position.y += botVelocityY * delta;
+                if (enemyGroup.position.y <= 0) {
+                    enemyGroup.position.y = 0;
+                    botVelocityY = 0;
+                    isBotGrounded = true;
+                }
+
                 enemyGroup.updateMatrixWorld(true);
 
-                // AIの攻撃
-                if (time - botShootTimer > 1500) {
+                // 5. 凶悪な攻撃処理（射撃間隔0.4秒、命中率・ダメージ大幅UP）
+                if (time - botShootTimer > 400) {
                     botShootTimer = time;
-                    if (Math.random() < 0.3) {
-                        myHP -= 10;
+                    const hitChance = dist < 12 ? 0.85 : 0.5; // 近距離なら85%で当ててくる
+                    if (Math.random() < hitChance) {
+                        myHP -= 15; // 1発のダメージも強化
                         lastDamageTime = time;
                         document.getElementById('hp').innerText = Math.floor(myHP);
                         const overlay = document.getElementById('damage-overlay');
-                        overlay.style.opacity = 0.6;
+                        overlay.style.opacity = 0.8;
                         setTimeout(() => overlay.style.opacity = 0, 100);
 
                         if (myHP <= 0) {
                             isPlaying = false;
-                            setTimeout(() => { alert("YOU LOSE... AIに負けたにゃ"); location.reload(); }, 100);
+                            setTimeout(() => { alert("YOU LOSE... 覚醒したAIにボコボコにされたにゃ"); location.reload(); }, 100);
                         }
                     }
                 }
