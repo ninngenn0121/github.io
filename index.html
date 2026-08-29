@@ -69,21 +69,26 @@
             <input type="text" id="player-name-input" placeholder="名前を入力" value="Player">
         </div>
 
-        <!-- 追加: 感度調整スライダー -->
         <div class="menu-section">
             <p style="margin:4px 0;">カメラ感度: <span id="sensitivity-value">1.0</span></p>
             <input type="range" id="sensitivity-slider" min="0.1" max="5.0" step="0.1" value="1.0" style="width: 80%;">
         </div>
 
-        <!-- マッチング用のUIを追加 -->
         <div class="menu-section" style="border: 1px solid #3498db;">
             <p style="margin:4px 0; font-weight:bold; color:#3498db;">オンライン対戦</p>
             <button id="btn-match" onclick="startMatchmaking()" style="width:90%;">ランダムマッチを探す</button>
             <div id="match-status" class="status-text text-wait" style="margin-top:8px;"></div>
         </div>
+
+        <!-- AI対戦用のUIを追加 -->
+        <div class="menu-section" style="border: 1px solid #9b59b6;">
+            <p style="margin:4px 0; font-weight:bold; color:#9b59b6;">AI対戦（Bot）</p>
+            <button class="btn-practice" style="background:#9b59b6;" onclick="startBotMode(false)">AIと戦う (PC)</button>
+            <button class="btn-practice" style="background:#9b59b6;" onclick="startBotMode(true)">AIと戦う (スマホ)</button>
+        </div>
         
         <div class="menu-section" style="border: 1px solid #2ecc71;">
-            <p style="margin:4px 0; font-weight:bold; color:#2ecc71;">ソロ練習場 (的当て)</p>
+            <p style="margin:4px 0; font-weight:bold; color:#2ecc71;">ソロ練習場 (動く的当て)</p>
             <button class="btn-practice" onclick="startPracticeMode(false)">練習場へ入る (PC)</button>
             <button class="btn-practice" onclick="startPracticeMode(true)">練習場へ入る (スマホ)</button>
         </div>
@@ -136,6 +141,8 @@ const INVERT_Y = false;
 let isMobile = false;
 let isPlaying = false;
 let isPracticeMode = false;
+let isBotMode = false; // Botモード判定用
+let botShootTimer = 0; // Botの射撃タイマー
 let myHP = 100;
 let enemyHP = 100;
 let myName = "Player";
@@ -143,7 +150,6 @@ let enemyName = "Enemy";
 let isHost = false;
 let enemyTargetPos = new THREE.Vector3(0, -100, 0);
 
-// 追加: 感度変数の定義とローカルストレージからの読み込み
 let sensitivity = parseFloat(localStorage.getItem('game_3d_sensitivity')) || 1.0;
 
 const savedName = localStorage.getItem('game_3d_name') || "Player";
@@ -156,7 +162,6 @@ nameInputEl.addEventListener('input', (e) => {
     localStorage.setItem('game_3d_name', val);
 });
 
-// 追加: スライダーの初期化とイベント設定
 const sensSlider = document.getElementById('sensitivity-slider');
 const sensValue = document.getElementById('sensitivity-value');
 if (sensSlider) {
@@ -274,7 +279,7 @@ function setupConnection() {
             document.getElementById('target-name').innerText = enemyName;
             enableStartGame();
         }
-        else if (data.type === 'state' && isPlaying && !isPracticeMode) {
+        else if (data.type === 'state' && isPlaying && !isPracticeMode && !isBotMode) {
             enemyTargetPos.set(data.x, data.y, data.z);
             enemyGroup.rotation.y = data.yaw;
             
@@ -302,7 +307,7 @@ function setupConnection() {
             }
             enemyGroup.updateMatrixWorld(true);
         } 
-        else if (data.type === 'hit' && isPlaying && !isPracticeMode) {
+        else if (data.type === 'hit' && isPlaying && !isPracticeMode && !isBotMode) {
             myHP -= data.damage;
             lastDamageTime = performance.now(); 
             document.getElementById('hp').innerText = Math.max(0, Math.floor(myHP));
@@ -322,7 +327,7 @@ function setupConnection() {
     });
 
     conn.on('close', () => { 
-        if (isPlaying && !isPracticeMode) {
+        if (isPlaying && !isPracticeMode && !isBotMode) {
             alert("対戦相手との接続が切断されました。"); 
             location.reload(); 
         }
@@ -344,7 +349,7 @@ function sendData(data) {
 }
 
 setInterval(() => {
-    if (isPlaying && !isPracticeMode) {
+    if (isPlaying && !isPracticeMode && !isBotMode) {
         const currentGround = player.isCrouching ? player.crouchHeight : player.height;
         const modelY = camera.position.y - currentGround;
         sendData({
@@ -368,8 +373,24 @@ let moveInput = { x: 0, z: 0 };
 
 function startPracticeMode(mobileMode) {
     isPracticeMode = true;
+    isBotMode = false;
     document.getElementById('target-name').innerText = "練習用ターゲット";
     createPracticeTargets();
+    startGame(mobileMode);
+}
+
+// Botモード開始関数
+function startBotMode(mobileMode) {
+    isBotMode = true;
+    isPracticeMode = false;
+    enemyName = "AI Bot";
+    document.getElementById('target-name').innerText = enemyName;
+    enemyHP = 100;
+    myHP = 100;
+    
+    enemyGroup.position.set(0, 0, 15);
+    updateEnemyWeapon(0);
+    
     startGame(mobileMode);
 }
 
@@ -381,7 +402,7 @@ function startGame(mobileMode) {
     document.getElementById('menu').style.display = 'none';
     document.getElementById('ui-layer').style.display = 'block';
     
-    if (isHost && !isPracticeMode) {
+    if (isHost && !isPracticeMode && !isBotMode) {
         camera.position.set(0, player.height, 10);
         player.yaw = Math.PI;
     } else {
@@ -406,7 +427,6 @@ function startGame(mobileMode) {
 
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
-                // 変更: pc用感度適用
                 player.yaw -= e.movementX * 0.002 * sensitivity;
                 
                 const pitchDelta = e.movementY * 0.002 * sensitivity;
@@ -505,7 +525,6 @@ function setupPointerControls() {
             const dx = e.clientX - lastLookX;
             const dy = e.clientY - lastLookY;
             
-            // 変更: スマホ用感度適用
             player.yaw -= dx * 0.004 * sensitivity;
             
             const pitchDelta = dy * 0.004 * sensitivity;
@@ -613,7 +632,6 @@ gridHelper.material.transparent = true;
 gridHelper.position.y = 0.01;
 scene.add(gridHelper);
 
-// 敵プレイヤーモデル構築
 const enemyGroup = new THREE.Group();
 scene.add(enemyGroup);
 
@@ -738,6 +756,13 @@ function createPracticeTargets() {
 
         group.position.set(pos.x, pos.y, pos.z);
         scene.add(group);
+        
+        // 動く的用のパラメータを付与
+        group.userData = {
+            startX: pos.x,
+            speed: 0.02 + Math.random() * 0.03, // 個別に速度をランダム化
+            dir: 1
+        };
         
         outer.userData = { isTarget: true, inner: false, parentGroup: group };
         inner.userData = { isTarget: true, inner: true, parentGroup: group };
@@ -988,7 +1013,21 @@ function fireSingleBullet() {
     if (isEnemyHit && !isPracticeMode && totalDamage > 0) {
         crosshair.classList.add('hit-marker');
         setTimeout(() => crosshair.classList.remove('hit-marker'), 120);
-        sendData({ type: 'hit', damage: totalDamage });
+        
+        if (isBotMode) {
+            // Botモード時のダメージ処理
+            enemyHP -= totalDamage;
+            if (enemyHP <= 0) {
+                isPlaying = false;
+                setTimeout(() => {
+                    alert("YOU WIN! AIを倒したにゃ！");
+                    location.reload();
+                }, 100);
+            }
+        } else {
+            // オンライン対戦時
+            sendData({ type: 'hit', damage: totalDamage });
+        }
     }
 }
 
@@ -1105,7 +1144,59 @@ function animate() {
             player.isGrounded = true;
         }
 
-        if (!isPracticeMode) {
+        if (isPracticeMode) {
+            // 動く的の処理
+            practiceTargets.forEach(mesh => {
+                const group = mesh.userData.parentGroup;
+                if (group && group.userData.speed) {
+                    group.position.x += group.userData.speed * group.userData.dir;
+                    if (Math.abs(group.position.x - group.userData.startX) > 4) {
+                        group.userData.dir *= -1;
+                    }
+                }
+            });
+        } else if (isBotMode) {
+            // AI（Bot）の動作
+            if (myHP > 0 && enemyHP > 0) {
+                const botSpeed = 3 * delta;
+                const dx = camera.position.x - enemyGroup.position.x;
+                const dz = camera.position.z - enemyGroup.position.z;
+                const dist = Math.hypot(dx, dz);
+                const angle = Math.atan2(dx, dz);
+                
+                enemyGroup.rotation.y = angle;
+
+                if (dist > 5) {
+                    enemyGroup.position.x += Math.sin(angle) * botSpeed;
+                    enemyGroup.position.z += Math.cos(angle) * botSpeed;
+                } else {
+                    enemyGroup.position.x += Math.cos(angle) * (botSpeed * 0.5) * Math.sin(time * 0.002);
+                }
+                
+                enemyGroup.position.y = 0;
+                enemyGroup.updateMatrixWorld(true);
+
+                // AIの攻撃
+                if (time - botShootTimer > 1500) {
+                    botShootTimer = time;
+                    if (Math.random() < 0.3) {
+                        myHP -= 10;
+                        lastDamageTime = time;
+                        document.getElementById('hp').innerText = Math.floor(myHP);
+                        const overlay = document.getElementById('damage-overlay');
+                        overlay.style.opacity = 0.6;
+                        setTimeout(() => overlay.style.opacity = 0, 100);
+
+                        if (myHP <= 0) {
+                            isPlaying = false;
+                            setTimeout(() => { alert("YOU LOSE... AIに負けたにゃ"); location.reload(); }, 100);
+                        }
+                    }
+                }
+                updateEnemyNameLabel();
+            }
+        } else {
+            // オンライン対戦用
             enemyGroup.position.lerp(enemyTargetPos, 0.2);
             updateEnemyNameLabel();
         }
@@ -1122,8 +1213,7 @@ window.addEventListener('resize', () => {
 
 animate();
 
-// --- ここから下が今回追加したマッチング（Socket.IO）用の処理 ---
-const socket = io(); // サーバーへ接続
+const socket = io(); 
 
 function startMatchmaking() {
     const btn = document.getElementById('btn-match');
@@ -1136,7 +1226,6 @@ function startMatchmaking() {
     status.innerText = "対戦相手を探しています...";
     status.className = "status-text text-wait";
     
-    // 自分のPeerJS IDをサーバーに送って待機列に入る
     socket.emit('join_matchmaking', currentMyId);
 }
 
@@ -1151,11 +1240,9 @@ socket.on('match_found', (data) => {
     status.className = "status-text text-success";
     
     if (!data.isHost) {
-        // 後から来たプレイヤーが、待機していたプレイヤーのPeerJSに自動で接続しにいく
         document.getElementById('peer-id-input').value = data.hostPeerId;
-        connectToPeer(); // 既存のP2P接続関数を呼び出す
+        connectToPeer(); 
     } else {
-        // 先に待機していた側はホスト（受ける側）になるため、相手からの接続を待つ
         status.innerText = "相手からの通信を待っています...";
         status.className = "status-text text-wait";
     }
